@@ -1,0 +1,1642 @@
+     1                                  ; ===================================================================
+     2                                  ;  MINESWEEPER  (NASM / DOS .COM / VGA mode 13h / INT 33h mouse)
+     3                                  ;
+     4                                  ;  Build : nasm -f bin main.asm -o main.com     (or: build.bat)
+     5                                  ;  Run   : in DOSBox ->  main.com   (click inside the window so the
+     6                                  ;          mouse is captured)
+     7                                  ;
+     8                                  ;  Left click  : open tile          Right click : place / remove flag
+     9                                  ;  Click face  : new game           R : new game        ESC : quit
+    10                                  ;  M           : music on/off (PC speaker)
+    11                                  ;
+    12                                  ;  This file is only the include manifest.  The code lives in src/,
+    13                                  ;  included below in the order the modules are laid out in the .COM
+    14                                  ;  image, so keeping this list in order matters.
+    15                                  ; ===================================================================
+    16                                  bits 16
+    17                                  org 100h
+    18                                  
+    19                                  GRID_COLS   equ 9
+    20                                  GRID_ROWS   equ 9
+    21                                  TOTAL_MINES equ 10
+    22                                  CELLS       equ GRID_COLS*GRID_ROWS
+    23                                  START_X     equ 88
+    24                                  START_Y     equ 45
+    25                                  
+    26                                  %include "src/macros.inc"       ; HIDEM/SHOWM/BEVEL/TXT macros
+     1                              <1> ; -------------------------------------------------------------------
+     2                              <1> ; Macros
+     3                              <1> ; -------------------------------------------------------------------
+     4                              <1> %macro HIDEM 0
+     5                              <1>     mov ax,2
+     6                              <1>     int 33h
+     7                              <1> %endmacro
+     8                              <1> 
+     9                              <1> %macro SHOWM 0
+    10                              <1>     mov ax,1
+    11                              <1>     int 33h
+    12                              <1> %endmacro
+    13                              <1> 
+    14                              <1> ; BEVEL raised(1)/sunken(0), x, y, w, h, faceColour
+    15                              <1> %macro BEVEL 6
+    16                              <1>     mov byte [BevFace],%6
+    17                              <1>   %if %1
+    18                              <1>     mov byte [BevTL],15
+    19                              <1>     mov byte [BevBR],8
+    20                              <1>   %else
+    21                              <1>     mov byte [BevTL],8
+    22                              <1>     mov byte [BevBR],15
+    23                              <1>   %endif
+    24                              <1>     mov ax,%2
+    25                              <1>     mov bx,%3
+    26                              <1>     mov cx,%4
+    27                              <1>     mov dx,%5
+    28                              <1>     call DrawBevel
+    29                              <1> %endmacro
+    30                              <1> 
+    31                              <1> ; TXT row, col, colour, 'string'
+    32                              <1> %macro TXT 4
+    33                              <1>     jmp short %%skip
+    34                              <1> %%str: db %4,0
+    35                              <1> %%skip:
+    36                              <1>     mov dh,%1
+    37                              <1>     mov dl,%2
+    38                              <1>     mov bl,%3
+    39                              <1>     mov si,%%str
+    40                              <1>     call PrintAt
+    41                              <1> %endmacro
+    27                                  
+    28                                  ; --- code ----------------------------------------------------------
+    29                                  %include "src/entry.asm"        ; start, main loop, keys, restart
+     1                              <1> ; -------------------------------------------------------------------
+     2                              <1> ; Program start
+     3                              <1> ; -------------------------------------------------------------------
+     4                              <1> start:
+     5 00000000 B81300              <1>     mov ax,0013h                ; 320x200x256
+     6 00000003 CD10                <1>     int 10h
+     7 00000005 FC                  <1>     cld
+     8 00000006 E88A00              <1>     call SetPalette
+     9                              <1> 
+    10 00000009 31C0                <1>     xor ax,ax                   ; reset mouse driver (cursor hidden)
+    11 0000000B CD33                <1>     int 33h
+    12 0000000D B80700              <1>     mov ax,7                    ; X range 0..639
+    13 00000010 31C9                <1>     xor cx,cx
+    14 00000012 BA7F02              <1>     mov dx,639
+    15 00000015 CD33                <1>     int 33h
+    16 00000017 B80800              <1>     mov ax,8                    ; Y range 0..199
+    17 0000001A 31C9                <1>     xor cx,cx
+    18 0000001C BAC700              <1>     mov dx,199
+    19 0000001F CD33                <1>     int 33h
+    20                              <1> 
+    21 00000021 E8B100              <1>     call NewGame
+    22 00000024 E8E905              <1>     call DrawStatic
+    23 00000027 E8C407              <1>     call Redraw
+    24                              <1>     SHOWM
+    10 0000002A B80100              <2>  mov ax,1
+    11 0000002D CD33                <2>  int 33h
+    25                              <1> 
+    26                              <1> GameLoop:
+    27 0000002F E85B02              <1>     call UpdateTimer
+    28                              <1> 
+    29 00000032 B401                <1>     mov ah,01h                  ; key waiting?
+    30 00000034 CD16                <1>     int 16h
+    31 00000036 752B                <1>     jnz KeyPressed
+    32                              <1> 
+    33 00000038 B80300              <1>     mov ax,0003h                ; poll mouse
+    34 0000003B CD33                <1>     int 33h
+    35 0000003D 80E303              <1>     and bl,3
+    36 00000040 741A                <1>     jz .released
+    37 00000042 803E[710E]00        <1>     cmp byte [PrevMouse],0
+    38 00000047 75E6                <1>     jne GameLoop                ; still holding: ignore until released
+    39 00000049 881E[710E]          <1>     mov [PrevMouse],bl
+    40 0000004D D1E9                <1>     shr cx,1                    ; 0..639 -> 0..319
+    41 0000004F 890E[6D0E]          <1>     mov [MouseX],cx
+    42 00000053 8916[6F0E]          <1>     mov [MouseY],dx
+    43 00000057 E87D03              <1>     call HandleClick
+    44 0000005A EBD3                <1>     jmp GameLoop
+    45                              <1> .released:
+    46 0000005C C606[710E]00        <1>     mov byte [PrevMouse],0
+    47 00000061 EBCC                <1>     jmp GameLoop
+    48                              <1> 
+    49                              <1> KeyPressed:
+    50 00000063 B400                <1>     mov ah,00h
+    51 00000065 CD16                <1>     int 16h
+    52 00000067 3C1B                <1>     cmp al,27                   ; ESC
+    53 00000069 7414                <1>     je ExitGame
+    54 0000006B 0C20                <1>     or al,20h                   ; to lower case
+    55 0000006D 3C6D                <1>     cmp al,'m'
+    56 0000006F 7409                <1>     je .mute
+    57 00000071 3C72                <1>     cmp al,'r'
+    58 00000073 75BA                <1>     jne GameLoop
+    59 00000075 E81400              <1>     call DoRestart
+    60 00000078 EBB5                <1>     jmp GameLoop
+    61                              <1> .mute:
+    62 0000007A E81B03              <1>     call ToggleMusic
+    63 0000007D EBB0                <1>     jmp GameLoop
+    64                              <1> 
+    65                              <1> ExitGame:
+    66 0000007F E84E03              <1>     call SpeakerOff
+    67 00000082 B80300              <1>     mov ax,0003h
+    68 00000085 CD10                <1>     int 10h
+    69 00000087 B8004C              <1>     mov ax,4C00h
+    70 0000008A CD21                <1>     int 21h
+    71                              <1> 
+    72                              <1> DoRestart:
+    73 0000008C E84600              <1>     call NewGame
+    74 0000008F E85C07              <1>     call Redraw
+    75 00000092 C3                  <1>     ret
+    30                                  %include "src/palette.asm"      ; DAC palette setup
+     1                              <1> ; -------------------------------------------------------------------
+     2                              <1> ; Palette: gradient background (32..51), number colours (52..59),
+     3                              <1> ; classic light/dark grey for tile faces and shadows (7, 8)
+     4                              <1> ; -------------------------------------------------------------------
+     5                              <1> SetPalette:
+     6 00000093 60                  <1>     pusha
+     7 00000094 FC                  <1>     cld
+     8 00000095 BAC803              <1>     mov dx,3C8h
+     9 00000098 B007                <1>     mov al,7
+    10 0000009A EE                  <1>     out dx,al
+    11 0000009B 42                  <1>     inc dx
+    12 0000009C BE[740A]            <1>     mov si,PalGrays
+    13 0000009F B90600              <1>     mov cx,6
+    14 000000A2 F36E                <1>     rep outsb
+    15                              <1> 
+    16 000000A4 4A                  <1>     dec dx
+    17 000000A5 B020                <1>     mov al,32
+    18 000000A7 EE                  <1>     out dx,al
+    19 000000A8 42                  <1>     inc dx
+    20 000000A9 30DB                <1>     xor bl,bl
+    21 000000AB B91400              <1>     mov cx,20
+    22                              <1> .grad:
+    23 000000AE 88D8                <1>     mov al,bl
+    24 000000B0 C0E802              <1>     shr al,2
+    25 000000B3 0403                <1>     add al,3                    ; R
+    26 000000B5 EE                  <1>     out dx,al
+    27 000000B6 88D8                <1>     mov al,bl
+    28 000000B8 D0E8                <1>     shr al,1
+    29 000000BA 0406                <1>     add al,6                    ; G
+    30 000000BC EE                  <1>     out dx,al
+    31 000000BD 88D8                <1>     mov al,bl
+    32 000000BF 0410                <1>     add al,16                   ; B
+    33 000000C1 EE                  <1>     out dx,al
+    34 000000C2 FEC3                <1>     inc bl
+    35 000000C4 E2E8                <1>     loop .grad
+    36                              <1> 
+    37 000000C6 4A                  <1>     dec dx
+    38 000000C7 B034                <1>     mov al,52
+    39 000000C9 EE                  <1>     out dx,al
+    40 000000CA 42                  <1>     inc dx
+    41 000000CB BE[7A0A]            <1>     mov si,PalNums
+    42 000000CE B91800              <1>     mov cx,24
+    43 000000D1 F36E                <1>     rep outsb
+    44 000000D3 61                  <1>     popa
+    45 000000D4 C3                  <1>     ret
+    31                                  %include "src/game.asm"         ; board state, mines, reveal, win check
+     1                              <1> ; -------------------------------------------------------------------
+     2                              <1> ; Game state
+     3                              <1> ; -------------------------------------------------------------------
+     4                              <1> NewGame:
+     5 000000D5 60                  <1>     pusha
+     6 000000D6 1E                  <1>     push ds
+     7 000000D7 07                  <1>     pop es
+     8 000000D8 FC                  <1>     cld
+     9 000000D9 BF[7F0E]            <1>     mov di,Board
+    10 000000DC B95100              <1>     mov cx,CELLS
+    11 000000DF 30C0                <1>     xor al,al
+    12 000000E1 F3AA                <1>     rep stosb
+    13                              <1> 
+    14 000000E3 B400                <1>     mov ah,00h
+    15 000000E5 CD1A                <1>     int 1Ah
+    16 000000E7 3116[7D0E]          <1>     xor [RndSeed],dx
+    17                              <1> 
+    18 000000EB 30DB                <1>     xor bl,bl                   ; mines placed
+    19                              <1> .place:
+    20 000000ED E84200              <1>     call GetRandom
+    21 000000F0 31D2                <1>     xor dx,dx
+    22 000000F2 B95100              <1>     mov cx,CELLS
+    23 000000F5 F7F1                <1>     div cx                      ; DX = 0..80
+    24 000000F7 89D6                <1>     mov si,dx
+    25 000000F9 F684[7F0E]01        <1>     test byte [Board+si],1
+    26 000000FE 75ED                <1>     jnz .place
+    27 00000100 808C[7F0E]01        <1>     or byte [Board+si],1
+    28 00000105 FEC3                <1>     inc bl
+    29 00000107 80FB0A              <1>     cmp bl,TOTAL_MINES
+    30 0000010A 72E1                <1>     jb .place
+    31                              <1> 
+    32 0000010C E84300              <1>     call ComputeNumbers
+    33                              <1> 
+    34 0000010F C606[720E]00        <1>     mov byte [GameOver],0
+    35 00000114 C606[730E]00        <1>     mov byte [Started],0
+    36 00000119 C606[740E]00        <1>     mov byte [TimerOn],0
+    37 0000011E C706[750E]0000      <1>     mov word [Seconds],0
+    38 00000124 C706[770E]0000      <1>     mov word [TickAcc],0
+    39 0000012A C706[7B0E]FFFF      <1>     mov word [HitCell],0FFFFh
+    40 00000130 61                  <1>     popa
+    41 00000131 C3                  <1>     ret
+    42                              <1> 
+    43                              <1> GetRandom:
+    44 00000132 52                  <1>     push dx
+    45 00000133 A1[7D0E]            <1>     mov ax,[RndSeed]
+    46 00000136 BA5562              <1>     mov dx,25173
+    47 00000139 F7E2                <1>     mul dx
+    48 0000013B 051936              <1>     add ax,13849
+    49 0000013E A3[7D0E]            <1>     mov [RndSeed],ax
+    50 00000141 5A                  <1>     pop dx
+    51 00000142 C3                  <1>     ret
+    52                              <1> 
+    53                              <1> ; BH=row BL=col -> SI = index   (AX preserved)
+    54                              <1> CellIndex:
+    55 00000143 50                  <1>     push ax
+    56 00000144 88F8                <1>     mov al,bh
+    57 00000146 B409                <1>     mov ah,GRID_COLS
+    58 00000148 F6E4                <1>     mul ah
+    59 0000014A 00D8                <1>     add al,bl
+    60 0000014C 30E4                <1>     xor ah,ah
+    61 0000014E 89C6                <1>     mov si,ax
+    62 00000150 58                  <1>     pop ax
+    63 00000151 C3                  <1>     ret
+    64                              <1> 
+    65                              <1> ; Fill high nibble of every safe cell with its neighbour-mine count
+    66                              <1> ComputeNumbers:
+    67 00000152 60                  <1>     pusha
+    68 00000153 31F6                <1>     xor si,si
+    69 00000155 30ED                <1>     xor ch,ch
+    70                              <1> .r:
+    71 00000157 30C9                <1>     xor cl,cl
+    72                              <1> .c:
+    73 00000159 80A4[7F0E]0F        <1>     and byte [Board+si],0Fh
+    74 0000015E F684[7F0E]01        <1>     test byte [Board+si],1
+    75 00000163 750A                <1>     jnz .n
+    76 00000165 E81800              <1>     call CountMines
+    77 00000168 C0E004              <1>     shl al,4
+    78 0000016B 0884[7F0E]          <1>     or [Board+si],al
+    79                              <1> .n:
+    80 0000016F 46                  <1>     inc si
+    81 00000170 FEC1                <1>     inc cl
+    82 00000172 80F909              <1>     cmp cl,GRID_COLS
+    83 00000175 72E2                <1>     jb .c
+    84 00000177 FEC5                <1>     inc ch
+    85 00000179 80FD09              <1>     cmp ch,GRID_ROWS
+    86 0000017C 72D9                <1>     jb .r
+    87 0000017E 61                  <1>     popa
+    88 0000017F C3                  <1>     ret
+    89                              <1> 
+    90                              <1> ; CH=row CL=col -> AL = mines around
+    91                              <1> CountMines:
+    92 00000180 53                  <1>     push bx
+    93 00000181 52                  <1>     push dx
+    94 00000182 56                  <1>     push si
+    95 00000183 30D2                <1>     xor dl,dl
+    96 00000185 88EF                <1>     mov bh,ch
+    97 00000187 FECF                <1>     dec bh
+    98                              <1> .lr:
+    99 00000189 80FF00              <1>     cmp bh,0
+   100 0000018C 7C29                <1>     jl .nr
+   101 0000018E 80FF09              <1>     cmp bh,GRID_ROWS
+   102 00000191 7D24                <1>     jge .nr
+   103 00000193 88CB                <1>     mov bl,cl
+   104 00000195 FECB                <1>     dec bl
+   105                              <1> .lc:
+   106 00000197 80FB00              <1>     cmp bl,0
+   107 0000019A 7C11                <1>     jl .nc
+   108 0000019C 80FB09              <1>     cmp bl,GRID_COLS
+   109 0000019F 7D0C                <1>     jge .nc
+   110 000001A1 E89FFF              <1>     call CellIndex
+   111 000001A4 F684[7F0E]01        <1>     test byte [Board+si],1
+   112 000001A9 7402                <1>     jz .nc
+   113 000001AB FEC2                <1>     inc dl
+   114                              <1> .nc:
+   115 000001AD FEC3                <1>     inc bl
+   116 000001AF 88C8                <1>     mov al,cl
+   117 000001B1 FEC0                <1>     inc al
+   118 000001B3 38C3                <1>     cmp bl,al
+   119 000001B5 7EE0                <1>     jle .lc
+   120                              <1> .nr:
+   121 000001B7 FEC7                <1>     inc bh
+   122 000001B9 88E8                <1>     mov al,ch
+   123 000001BB FEC0                <1>     inc al
+   124 000001BD 38C7                <1>     cmp bh,al
+   125 000001BF 7EC8                <1>     jle .lr
+   126 000001C1 88D0                <1>     mov al,dl
+   127 000001C3 5E                  <1>     pop si
+   128 000001C4 5A                  <1>     pop dx
+   129 000001C5 5B                  <1>     pop bx
+   130 000001C6 C3                  <1>     ret
+   131                              <1> 
+   132                              <1> ; First click must never be a mine: move it to the first free cell
+   133                              <1> ; SI = clicked cell
+   134                              <1> RelocateMine:
+   135 000001C7 60                  <1>     pusha
+   136 000001C8 31DB                <1>     xor bx,bx
+   137                              <1> .find:
+   138 000001CA F687[7F0E]01        <1>     test byte [Board+bx],1
+   139 000001CF 7403                <1>     jz .found
+   140 000001D1 43                  <1>     inc bx
+   141 000001D2 EBF6                <1>     jmp .find
+   142                              <1> .found:
+   143 000001D4 808F[7F0E]01        <1>     or byte [Board+bx],1
+   144 000001D9 80A4[7F0E]FE        <1>     and byte [Board+si],0FEh
+   145 000001DE E871FF              <1>     call ComputeNumbers
+   146 000001E1 61                  <1>     popa
+   147 000001E2 C3                  <1>     ret
+   148                              <1> 
+   149                              <1> ; Flood fill.  BH=row BL=col
+   150                              <1> RevealCell:
+   151 000001E3 60                  <1>     pusha
+   152 000001E4 E85CFF              <1>     call CellIndex
+   153 000001E7 F684[7F0E]06        <1>     test byte [Board+si],6      ; opened or flagged
+   154 000001EC 7546                <1>     jnz .done
+   155 000001EE 808C[7F0E]02        <1>     or byte [Board+si],2
+   156 000001F3 8A84[7F0E]          <1>     mov al,[Board+si]
+   157 000001F7 24F0                <1>     and al,0F0h
+   158 000001F9 7539                <1>     jnz .done                   ; has neighbour mines -> stop
+   159 000001FB 88FE                <1>     mov dh,bh
+   160 000001FD FECE                <1>     dec dh
+   161                              <1> .rr:
+   162 000001FF 80FE00              <1>     cmp dh,0
+   163 00000202 7C26                <1>     jl .rn
+   164 00000204 80FE09              <1>     cmp dh,GRID_ROWS
+   165 00000207 7D21                <1>     jge .rn
+   166 00000209 88DA                <1>     mov dl,bl
+   167 0000020B FECA                <1>     dec dl
+   168                              <1> .cc:
+   169 0000020D 80FA00              <1>     cmp dl,0
+   170 00000210 7C0E                <1>     jl .cn
+   171 00000212 80FA09              <1>     cmp dl,GRID_COLS
+   172 00000215 7D09                <1>     jge .cn
+   173 00000217 53                  <1>     push bx
+   174 00000218 88F7                <1>     mov bh,dh
+   175 0000021A 88D3                <1>     mov bl,dl
+   176 0000021C E8C4FF              <1>     call RevealCell
+   177 0000021F 5B                  <1>     pop bx
+   178                              <1> .cn:
+   179 00000220 FEC2                <1>     inc dl
+   180 00000222 88D8                <1>     mov al,bl
+   181 00000224 FEC0                <1>     inc al
+   182 00000226 38C2                <1>     cmp dl,al
+   183 00000228 7EE3                <1>     jle .cc
+   184                              <1> .rn:
+   185 0000022A FEC6                <1>     inc dh
+   186 0000022C 88F8                <1>     mov al,bh
+   187 0000022E FEC0                <1>     inc al
+   188 00000230 38C6                <1>     cmp dh,al
+   189 00000232 7ECB                <1>     jle .rr
+   190                              <1> .done:
+   191 00000234 61                  <1>     popa
+   192 00000235 C3                  <1>     ret
+   193                              <1> 
+   194                              <1> RevealMines:                    ; show all un-flagged mines
+   195 00000236 60                  <1>     pusha
+   196 00000237 31F6                <1>     xor si,si
+   197                              <1> .l:
+   198 00000239 8A84[7F0E]          <1>     mov al,[Board+si]
+   199 0000023D A801                <1>     test al,1
+   200 0000023F 7409                <1>     jz .n
+   201 00000241 A804                <1>     test al,4
+   202 00000243 7505                <1>     jnz .n
+   203 00000245 808C[7F0E]02        <1>     or byte [Board+si],2
+   204                              <1> .n:
+   205 0000024A 46                  <1>     inc si
+   206 0000024B 83FE51              <1>     cmp si,CELLS
+   207 0000024E 72E9                <1>     jb .l
+   208 00000250 61                  <1>     popa
+   209 00000251 C3                  <1>     ret
+   210                              <1> 
+   211                              <1> CheckWin:
+   212 00000252 60                  <1>     pusha
+   213 00000253 31F6                <1>     xor si,si
+   214                              <1> .l:
+   215 00000255 8A84[7F0E]          <1>     mov al,[Board+si]
+   216 00000259 A801                <1>     test al,1
+   217 0000025B 7504                <1>     jnz .n
+   218 0000025D A802                <1>     test al,2
+   219 0000025F 742A                <1>     jz .out                     ; a safe tile is still closed
+   220                              <1> .n:
+   221 00000261 46                  <1>     inc si
+   222 00000262 83FE51              <1>     cmp si,CELLS
+   223 00000265 72EE                <1>     jb .l
+   224 00000267 C606[720E]02        <1>     mov byte [GameOver],2       ; won
+   225 0000026C C606[740E]00        <1>     mov byte [TimerOn],0
+   226 00000271 31F6                <1>     xor si,si
+   227                              <1> .f:
+   228 00000273 F684[7F0E]01        <1>     test byte [Board+si],1      ; flag every mine
+   229 00000278 7405                <1>     jz .fn
+   230 0000027A 808C[7F0E]04        <1>     or byte [Board+si],4
+   231                              <1> .fn:
+   232 0000027F 46                  <1>     inc si
+   233 00000280 83FE51              <1>     cmp si,CELLS
+   234 00000283 72EE                <1>     jb .f
+   235 00000285 BE[140E]            <1>     mov si,SfxWin               ; board cleared: victory fanfare
+   236 00000288 E8F900              <1>     call StartSfx
+   237                              <1> .out:
+   238 0000028B 61                  <1>     popa
+   239 0000028C C3                  <1>     ret
+    32                                  %include "src/timer.asm"        ; seconds counter on BIOS ticks
+     1                              <1> ; -------------------------------------------------------------------
+     2                              <1> ; Timer (BIOS ticks: 18.2/s -> 5 units per tick, 91 units per second)
+     3                              <1> ; -------------------------------------------------------------------
+     4                              <1> UpdateTimer:
+     5 0000028D 60                  <1>     pusha
+     6 0000028E B400                <1>     mov ah,00h
+     7 00000290 CD1A                <1>     int 1Ah
+     8 00000292 89D0                <1>     mov ax,dx
+     9 00000294 2B06[790E]          <1>     sub ax,[LastTick]
+    10 00000298 743E                <1>     jz .done
+    11 0000029A 8916[790E]          <1>     mov [LastTick],dx
+    12 0000029E 50                  <1>     push ax
+    13 0000029F E83800              <1>     call MusicStep              ; AX = ticks elapsed
+    14 000002A2 58                  <1>     pop ax
+    15 000002A3 803E[740E]00        <1>     cmp byte [TimerOn],0
+    16 000002A8 742E                <1>     je .done
+    17 000002AA BB0500              <1>     mov bx,5
+    18 000002AD F7E3                <1>     mul bx
+    19 000002AF 0106[770E]          <1>     add [TickAcc],ax
+    20 000002B3 30DB                <1>     xor bl,bl
+    21                              <1> .sec:
+    22 000002B5 833E[770E]5B        <1>     cmp word [TickAcc],91
+    23 000002BA 7215                <1>     jb .chk
+    24 000002BC 832E[770E]5B        <1>     sub word [TickAcc],91
+    25 000002C1 813E[750E]E703      <1>     cmp word [Seconds],999
+    26 000002C7 73EC                <1>     jae .sec
+    27 000002C9 FF06[750E]          <1>     inc word [Seconds]
+    28 000002CD B301                <1>     mov bl,1
+    29 000002CF EBE4                <1>     jmp .sec
+    30                              <1> .chk:
+    31 000002D1 08DB                <1>     or bl,bl
+    32 000002D3 7403                <1>     jz .done
+    33 000002D5 E82C05              <1>     call DrawTimer
+    34                              <1> .done:
+    35 000002D8 61                  <1>     popa
+    36 000002D9 C3                  <1>     ret
+    33                                  %include "src/audio.asm"        ; PC speaker engine (music + effects)
+     1                              <1> ; -------------------------------------------------------------------
+     2                              <1> ; Sound engine: one-shot effects (SfxBoom / SfxWin) on the PC speaker
+     3                              <1> ; (PIT channel 2, port 61h gate).  An effect takes the speaker over,
+     4                              <1> ; stopping the music, and the tune picks up again from Riff 1 when the
+     5                              <1> ; effect has finished.  Song and effect entries share one format:
+     6                              <1> ; (frequency Hz, ticks); 0 Hz = rest; 0FFFFh = loop back / stop.
+     7                              <1> ; -------------------------------------------------------------------
+     8                              <1> MusicStep:                      ; AX = BIOS ticks since last call
+     9 000002DA 60                  <1>     pusha
+    10 000002DB 803E[490E]00        <1>     cmp byte [SfxOn],0
+    11 000002E0 741D                <1>     je .music
+    12 000002E2 8B1E[4C0E]          <1>     mov bx,[SfxLeft]            ; --- effect playing ---
+    13 000002E6 39D8                <1>     cmp ax,bx
+    14 000002E8 7205                <1>     jb .sfxhold
+    15 000002EA E85C00              <1>     call SfxAdvance             ; effect note finished -> next one
+    16 000002ED EB58                <1>     jmp .done
+    17                              <1> .sfxhold:
+    18 000002EF 29C3                <1>     sub bx,ax
+    19 000002F1 891E[4C0E]          <1>     mov [SfxLeft],bx
+    20 000002F5 83FB01              <1>     cmp bx,1
+    21 000002F8 774D                <1>     ja .done
+    22 000002FA E8D300              <1>     call SpeakerOff             ; last tick of an effect note
+    23 000002FD EB48                <1>     jmp .done
+    24                              <1> 
+    25                              <1> .music:
+    26 000002FF 803E[440E]00        <1>     cmp byte [MusicOn],0
+    27 00000304 7441                <1>     je .done
+    28 00000306 8B1E[450E]          <1>     mov bx,[NoteLeft]
+    29 0000030A 39D8                <1>     cmp ax,bx
+    30 0000030C 7310                <1>     jae .next                   ; current note finished
+    31 0000030E 29C3                <1>     sub bx,ax
+    32 00000310 891E[450E]          <1>     mov [NoteLeft],bx
+    33 00000314 83FB01              <1>     cmp bx,1
+    34 00000317 772E                <1>     ja .done
+    35 00000319 E8B400              <1>     call SpeakerOff             ; last tick of a note = short gap
+    36 0000031C EB29                <1>     jmp .done
+    37                              <1> .next:
+    38 0000031E 8B36[470E]          <1>     mov si,[MusicPtr]
+    39 00000322 8B1C                <1>     mov bx,[si]
+    40 00000324 83FBFF              <1>     cmp bx,0FFFFh
+    41 00000327 7505                <1>     jne .play
+    42 00000329 BE[E00B]            <1>     mov si,SongTable            ; end of tune -> loop
+    43 0000032C 8B1C                <1>     mov bx,[si]
+    44                              <1> .play:
+    45 0000032E 8B4402              <1>     mov ax,[si+2]
+    46 00000331 A3[450E]            <1>     mov [NoteLeft],ax
+    47 00000334 83C604              <1>     add si,4
+    48 00000337 8936[470E]          <1>     mov [MusicPtr],si
+    49 0000033B 09DB                <1>     or bx,bx
+    50 0000033D 7405                <1>     jz .rest
+    51 0000033F E87100              <1>     call SpeakerOn
+    52 00000342 EB03                <1>     jmp .done
+    53                              <1> .rest:
+    54 00000344 E88900              <1>     call SpeakerOff
+    55                              <1> .done:
+    56 00000347 61                  <1>     popa
+    57 00000348 C3                  <1>     ret
+    58                              <1> 
+    59                              <1> ; Pull the next entry of the running effect.  When the table ends the
+    60                              <1> ; effect is over and the tune restarts from Riff 1 (unless muted).
+    61                              <1> SfxAdvance:
+    62 00000349 60                  <1>     pusha
+    63 0000034A 8B36[4A0E]          <1>     mov si,[SfxPtr]
+    64 0000034E 8B1C                <1>     mov bx,[si]
+    65 00000350 83FBFF              <1>     cmp bx,0FFFFh
+    66 00000353 741B                <1>     je .end
+    67 00000355 8B4402              <1>     mov ax,[si+2]
+    68 00000358 A3[4C0E]            <1>     mov [SfxLeft],ax
+    69 0000035B 83C604              <1>     add si,4
+    70 0000035E 8936[4A0E]          <1>     mov [SfxPtr],si
+    71 00000362 09DB                <1>     or bx,bx
+    72 00000364 7405                <1>     jz .rest
+    73 00000366 E84A00              <1>     call SpeakerOn
+    74 00000369 61                  <1>     popa
+    75 0000036A C3                  <1>     ret
+    76                              <1> .rest:
+    77 0000036B E86200              <1>     call SpeakerOff
+    78 0000036E 61                  <1>     popa
+    79 0000036F C3                  <1>     ret
+    80                              <1> .end:
+    81 00000370 C606[490E]00        <1>     mov byte [SfxOn],0
+    82 00000375 C706[450E]0000      <1>     mov word [NoteLeft],0
+    83 0000037B BE[E00B]            <1>     mov si,SongTable
+    84 0000037E 8936[470E]          <1>     mov [MusicPtr],si
+    85 00000382 61                  <1>     popa
+    86 00000383 C3                  <1>     ret
+    87                              <1> 
+    88                              <1> ; Start effect whose table address is in SI (music is silenced first)
+    89                              <1> StartSfx:
+    90 00000384 53                  <1>     push bx
+    91 00000385 56                  <1>     push si
+    92 00000386 E84700              <1>     call SpeakerOff
+    93 00000389 8936[4A0E]          <1>     mov [SfxPtr],si
+    94 0000038D C606[490E]01        <1>     mov byte [SfxOn],1
+    95 00000392 E8B4FF              <1>     call SfxAdvance
+    96 00000395 5E                  <1>     pop si
+    97 00000396 5B                  <1>     pop bx
+    98 00000397 C3                  <1>     ret
+    99                              <1> 
+   100                              <1> ToggleMusic:
+   101 00000398 8036[440E]01        <1>     xor byte [MusicOn],1
+   102 0000039D C706[450E]0000      <1>     mov word [NoteLeft],0
+   103 000003A3 803E[440E]00        <1>     cmp byte [MusicOn],0
+   104 000003A8 7508                <1>     jne .r
+   105 000003AA C606[490E]00        <1>     mov byte [SfxOn],0
+   106 000003AF E81E00              <1>     call SpeakerOff
+   107                              <1> .r:
+   108 000003B2 C3                  <1>     ret
+    34                                  %include "src/pcspeaker.asm"    ; PIT / port 61h hardware layer
+     1                              <1> ; -------------------------------------------------------------------
+     2                              <1> ; PC speaker hardware driver: PIT channel 2 (ports 42h/43h) plus the
+     3                              <1> ; port 61h gate.  SpeakerOn takes the frequency in Hz in BX.
+     4                              <1> ;
+     5                              <1> ; This is the only module that touches the speaker hardware; the
+     6                              <1> ; sequencing logic in audio.asm is written against these two calls.
+     7                              <1> ; -------------------------------------------------------------------
+     8                              <1> SpeakerOn:
+     9 000003B3 BA1200              <1>     mov dx,0012h
+    10 000003B6 B8DE34              <1>     mov ax,34DEh                ; DX:AX = 1193182 (PIT clock)
+    11 000003B9 F7F3                <1>     div bx                      ; AX = PIT divisor
+    12 000003BB 89C3                <1>     mov bx,ax
+    13 000003BD B0B6                <1>     mov al,0B6h                 ; channel 2, lo/hi, square wave
+    14 000003BF E643                <1>     out 43h,al
+    15 000003C1 88D8                <1>     mov al,bl
+    16 000003C3 E642                <1>     out 42h,al
+    17 000003C5 88F8                <1>     mov al,bh
+    18 000003C7 E642                <1>     out 42h,al
+    19 000003C9 E461                <1>     in al,61h
+    20 000003CB 0C03                <1>     or al,3                     ; gate + speaker on
+    21 000003CD E661                <1>     out 61h,al
+    22 000003CF C3                  <1>     ret
+    23                              <1> 
+    24                              <1> SpeakerOff:
+    25 000003D0 E461                <1>     in al,61h
+    26 000003D2 24FC                <1>     and al,0FCh
+    27 000003D4 E661                <1>     out 61h,al
+    28 000003D6 C3                  <1>     ret
+    35                                  %include "src/input.asm"        ; mouse click handling
+     1                              <1> ; -------------------------------------------------------------------
+     2                              <1> ; Mouse click handling.  MouseX/MouseY = pixel, PrevMouse = buttons
+     3                              <1> ; -------------------------------------------------------------------
+     4                              <1> HandleClick:
+     5 000003D7 60                  <1>     pusha
+     6                              <1> 
+     7                              <1>     ; --- face button (new game) ---
+     8 000003D8 A1[6D0E]            <1>     mov ax,[MouseX]
+     9 000003DB 3D9500              <1>     cmp ax,149
+    10 000003DE 7C21                <1>     jl .board
+    11 000003E0 3DAB00              <1>     cmp ax,171
+    12 000003E3 7D1C                <1>     jge .board
+    13 000003E5 A1[6F0E]            <1>     mov ax,[MouseY]
+    14 000003E8 83F80C              <1>     cmp ax,12
+    15 000003EB 7C14                <1>     jl .board
+    16 000003ED 83F822              <1>     cmp ax,34
+    17 000003F0 7D0F                <1>     jge .board
+    18 000003F2 F606[710E]01        <1>     test byte [PrevMouse],1
+    19 000003F7 0F84B700            <1>     jz .out
+    20 000003FB E88EFC              <1>     call DoRestart
+    21 000003FE E9B100              <1>     jmp .out
+    22                              <1> 
+    23                              <1>     ; --- board ---
+    24                              <1> .board:
+    25 00000401 803E[720E]00        <1>     cmp byte [GameOver],0
+    26 00000406 0F85A800            <1>     jne .out
+    27                              <1> 
+    28 0000040A A1[6D0E]            <1>     mov ax,[MouseX]
+    29 0000040D 83E858              <1>     sub ax,START_X
+    30 00000410 0F8C9E00            <1>     jl .out
+    31 00000414 3D9000              <1>     cmp ax,GRID_COLS*16
+    32 00000417 0F8D9700            <1>     jge .out
+    33 0000041B C1E804              <1>     shr ax,4
+    34 0000041E 88C2                <1>     mov dl,al                   ; column
+    35 00000420 A1[6F0E]            <1>     mov ax,[MouseY]
+    36 00000423 83E82D              <1>     sub ax,START_Y
+    37 00000426 0F8C8800            <1>     jl .out
+    38 0000042A 3D9000              <1>     cmp ax,GRID_ROWS*16
+    39 0000042D 0F8D8100            <1>     jge .out
+    40 00000431 C1E804              <1>     shr ax,4
+    41 00000434 88C6                <1>     mov dh,al                   ; row
+    42                              <1> 
+    43 00000436 88F7                <1>     mov bh,dh
+    44 00000438 88D3                <1>     mov bl,dl
+    45 0000043A E806FD              <1>     call CellIndex              ; SI = cell index
+    46                              <1> 
+    47 0000043D F606[710E]01        <1>     test byte [PrevMouse],1
+    48 00000442 7509                <1>     jnz .left
+    49 00000444 F606[710E]02        <1>     test byte [PrevMouse],2
+    50 00000449 7558                <1>     jnz .right
+    51 0000044B EB65                <1>     jmp .out
+    52                              <1> 
+    53                              <1> .left:
+    54 0000044D F684[7F0E]06        <1>     test byte [Board+si],6      ; flagged or already open
+    55 00000452 755E                <1>     jnz .out
+    56 00000454 803E[730E]00        <1>     cmp byte [Started],0
+    57 00000459 751A                <1>     jne .go
+    58 0000045B C606[730E]01        <1>     mov byte [Started],1        ; first click: start timer, be safe
+    59 00000460 C606[740E]01        <1>     mov byte [TimerOn],1
+    60 00000465 C706[770E]0000      <1>     mov word [TickAcc],0
+    61 0000046B F684[7F0E]01        <1>     test byte [Board+si],1
+    62 00000470 7403                <1>     jz .go
+    63 00000472 E852FD              <1>     call RelocateMine
+    64                              <1> .go:
+    65 00000475 F684[7F0E]01        <1>     test byte [Board+si],1
+    66 0000047A 750B                <1>     jnz .boom
+    67 0000047C E864FD              <1>     call RevealCell
+    68 0000047F E8D0FD              <1>     call CheckWin
+    69 00000482 E86903              <1>     call Redraw
+    70 00000485 EB2B                <1>     jmp .out
+    71                              <1> .boom:
+    72 00000487 C606[720E]01        <1>     mov byte [GameOver],1
+    73 0000048C C606[740E]00        <1>     mov byte [TimerOn],0
+    74 00000491 8936[7B0E]          <1>     mov [HitCell],si
+    75 00000495 E89EFD              <1>     call RevealMines
+    76 00000498 E85303              <1>     call Redraw
+    77 0000049B BE[C00D]            <1>     mov si,SfxBoom
+    78 0000049E E8E3FE              <1>     call StartSfx
+    79 000004A1 EB0F                <1>     jmp .out
+    80                              <1> 
+    81                              <1> .right:
+    82 000004A3 F684[7F0E]02        <1>     test byte [Board+si],2      ; can't flag an open tile
+    83 000004A8 7508                <1>     jnz .out
+    84 000004AA 80B4[7F0E]04        <1>     xor byte [Board+si],4       ; toggle flag
+    85 000004AF E83C03              <1>     call Redraw
+    86                              <1> 
+    87                              <1> .out:
+    88 000004B2 61                  <1>     popa
+    89 000004B3 C3                  <1>     ret
+    36                                  %include "src/video.asm"        ; FillRect/bevel/sprite/glyph primitives
+     1                              <1> ; -------------------------------------------------------------------
+     2                              <1> ; Drawing primitives
+     3                              <1> ; -------------------------------------------------------------------
+     4                              <1> ; FillRect: AX=x BX=y CX=w DX=h, colour in [FillCol]
+     5                              <1> FillRect:
+     6 000004B4 60                  <1>     pusha
+     7 000004B5 06                  <1>     push es
+     8 000004B6 FC                  <1>     cld
+     9 000004B7 89DF                <1>     mov di,bx
+    10 000004B9 C1E708              <1>     shl di,8
+    11 000004BC C1E306              <1>     shl bx,6
+    12 000004BF 01DF                <1>     add di,bx
+    13 000004C1 01C7                <1>     add di,ax                   ; DI = y*320 + x
+    14 000004C3 B800A0              <1>     mov ax,0A000h
+    15 000004C6 8EC0                <1>     mov es,ax
+    16 000004C8 A0[4E0E]            <1>     mov al,[FillCol]
+    17 000004CB 89D5                <1>     mov bp,dx
+    18 000004CD 09ED                <1>     or bp,bp
+    19 000004CF 740D                <1>     jz .end
+    20                              <1> .row:
+    21 000004D1 57                  <1>     push di
+    22 000004D2 51                  <1>     push cx
+    23 000004D3 F3AA                <1>     rep stosb
+    24 000004D5 59                  <1>     pop cx
+    25 000004D6 5F                  <1>     pop di
+    26 000004D7 81C74001            <1>     add di,320
+    27 000004DB 4D                  <1>     dec bp
+    28 000004DC 75F3                <1>     jnz .row
+    29                              <1> .end:
+    30 000004DE 07                  <1>     pop es
+    31 000004DF 61                  <1>     popa
+    32 000004E0 C3                  <1>     ret
+    33                              <1> 
+    34                              <1> ; DrawBevel: AX=x BX=y CX=w DX=h ; [BevTL] [BevBR] [BevFace]
+    35                              <1> DrawBevel:
+    36 000004E1 60                  <1>     pusha
+    37 000004E2 A3[520E]            <1>     mov [BvX],ax
+    38 000004E5 891E[540E]          <1>     mov [BvY],bx
+    39 000004E9 890E[560E]          <1>     mov [BvW],cx
+    40 000004ED 8916[580E]          <1>     mov [BvH],dx
+    41                              <1> 
+    42 000004F1 A0[500E]            <1>     mov al,[BevBR]              ; whole rect in bottom/right colour
+    43 000004F4 A2[4E0E]            <1>     mov [FillCol],al
+    44 000004F7 A1[520E]            <1>     mov ax,[BvX]
+    45 000004FA 8B1E[540E]          <1>     mov bx,[BvY]
+    46 000004FE 8B0E[560E]          <1>     mov cx,[BvW]
+    47 00000502 8B16[580E]          <1>     mov dx,[BvH]
+    48 00000506 E8ABFF              <1>     call FillRect
+    49                              <1> 
+    50 00000509 A0[4F0E]            <1>     mov al,[BevTL]              ; top/left highlight
+    51 0000050C A2[4E0E]            <1>     mov [FillCol],al
+    52 0000050F A1[520E]            <1>     mov ax,[BvX]
+    53 00000512 8B1E[540E]          <1>     mov bx,[BvY]
+    54 00000516 8B0E[560E]          <1>     mov cx,[BvW]
+    55 0000051A 83E902              <1>     sub cx,2
+    56 0000051D 8B16[580E]          <1>     mov dx,[BvH]
+    57 00000521 83EA02              <1>     sub dx,2
+    58 00000524 E88DFF              <1>     call FillRect
+    59                              <1> 
+    60 00000527 A0[510E]            <1>     mov al,[BevFace]            ; face
+    61 0000052A A2[4E0E]            <1>     mov [FillCol],al
+    62 0000052D A1[520E]            <1>     mov ax,[BvX]
+    63 00000530 83C002              <1>     add ax,2
+    64 00000533 8B1E[540E]          <1>     mov bx,[BvY]
+    65 00000537 83C302              <1>     add bx,2
+    66 0000053A 8B0E[560E]          <1>     mov cx,[BvW]
+    67 0000053E 83E904              <1>     sub cx,4
+    68 00000541 8B16[580E]          <1>     mov dx,[BvH]
+    69 00000545 83EA04              <1>     sub dx,4
+    70 00000548 E869FF              <1>     call FillRect
+    71 0000054B 61                  <1>     popa
+    72 0000054C C3                  <1>     ret
+    73                              <1> 
+    74                              <1> ; DrawRects: SI -> list of (x,y,w,h,colour), 0FFh ends.
+    75                              <1> ; Coordinates are relative to [OrgX],[OrgY]
+    76                              <1> DrawRects:
+    77 0000054D 60                  <1>     pusha
+    78 0000054E FC                  <1>     cld
+    79                              <1> .next:
+    80 0000054F AC                  <1>     lodsb
+    81 00000550 3CFF                <1>     cmp al,0FFh
+    82 00000552 7424                <1>     je .done
+    83 00000554 30E4                <1>     xor ah,ah
+    84 00000556 0306[5A0E]          <1>     add ax,[OrgX]
+    85 0000055A 50                  <1>     push ax
+    86 0000055B AC                  <1>     lodsb
+    87 0000055C 30E4                <1>     xor ah,ah
+    88 0000055E 0306[5C0E]          <1>     add ax,[OrgY]
+    89 00000562 89C3                <1>     mov bx,ax
+    90 00000564 AC                  <1>     lodsb
+    91 00000565 30E4                <1>     xor ah,ah
+    92 00000567 89C1                <1>     mov cx,ax
+    93 00000569 AC                  <1>     lodsb
+    94 0000056A 30E4                <1>     xor ah,ah
+    95 0000056C 89C2                <1>     mov dx,ax
+    96 0000056E AC                  <1>     lodsb
+    97 0000056F A2[4E0E]            <1>     mov [FillCol],al
+    98 00000572 58                  <1>     pop ax
+    99 00000573 E83EFF              <1>     call FillRect
+   100 00000576 EBD7                <1>     jmp .next
+   101                              <1> .done:
+   102 00000578 61                  <1>     popa
+   103 00000579 C3                  <1>     ret
+   104                              <1> 
+   105                              <1> ; DrawGlyph: AL = digit 0..9, [GlX],[GlY] top-left, [GlS] scale, [GlC] colour
+   106                              <1> DrawGlyph:
+   107 0000057A 60                  <1>     pusha
+   108 0000057B 30E4                <1>     xor ah,ah
+   109 0000057D 89C6                <1>     mov si,ax
+   110 0000057F C1E002              <1>     shl ax,2
+   111 00000582 01C6                <1>     add si,ax                   ; digit * 5
+   112 00000584 81C6[9A0A]          <1>     add si,Font3x5
+   113 00000588 A0[650E]            <1>     mov al,[GlC]
+   114 0000058B A2[4E0E]            <1>     mov [FillCol],al
+   115 0000058E 8B2E[620E]          <1>     mov bp,[GlY]
+   116 00000592 C606[670E]05        <1>     mov byte [GlRows],5
+   117                              <1> .row:
+   118 00000597 AC                  <1>     lodsb
+   119 00000598 A2[660E]            <1>     mov [GlBits],al
+   120 0000059B 8B3E[600E]          <1>     mov di,[GlX]
+   121 0000059F C606[680E]03        <1>     mov byte [GlCols],3
+   122                              <1> .col:
+   123 000005A4 F606[660E]04        <1>     test byte [GlBits],4
+   124 000005A9 740F                <1>     jz .skip
+   125 000005AB 89F8                <1>     mov ax,di
+   126 000005AD 89EB                <1>     mov bx,bp
+   127 000005AF 30ED                <1>     xor ch,ch
+   128 000005B1 8A0E[640E]          <1>     mov cl,[GlS]
+   129 000005B5 89CA                <1>     mov dx,cx
+   130 000005B7 E8FAFE              <1>     call FillRect
+   131                              <1> .skip:
+   132 000005BA D026[660E]          <1>     shl byte [GlBits],1
+   133 000005BE 30E4                <1>     xor ah,ah
+   134 000005C0 A0[640E]            <1>     mov al,[GlS]
+   135 000005C3 01C7                <1>     add di,ax
+   136 000005C5 FE0E[680E]          <1>     dec byte [GlCols]
+   137 000005C9 75D9                <1>     jnz .col
+   138 000005CB 30E4                <1>     xor ah,ah
+   139 000005CD A0[640E]            <1>     mov al,[GlS]
+   140 000005D0 01C5                <1>     add bp,ax
+   141 000005D2 FE0E[670E]          <1>     dec byte [GlRows]
+   142 000005D6 75BF                <1>     jnz .row
+   143 000005D8 61                  <1>     popa
+   144 000005D9 C3                  <1>     ret
+   145                              <1> 
+   146                              <1> ; PrintAt: DH=row DL=col BL=colour SI=zero-terminated string (BIOS text)
+   147                              <1> PrintAt:
+   148 000005DA 60                  <1>     pusha
+   149 000005DB B402                <1>     mov ah,02h
+   150 000005DD 30FF                <1>     xor bh,bh
+   151 000005DF CD10                <1>     int 10h
+   152                              <1> .ch:
+   153 000005E1 AC                  <1>     lodsb
+   154 000005E2 08C0                <1>     or al,al
+   155 000005E4 7406                <1>     jz .done
+   156 000005E6 B40E                <1>     mov ah,0Eh
+   157 000005E8 CD10                <1>     int 10h
+   158 000005EA EBF5                <1>     jmp .ch
+   159                              <1> .done:
+   160 000005EC 61                  <1>     popa
+   161 000005ED C3                  <1>     ret
+    37                                  %include "src/ui.asm"           ; board, header, face, status rendering
+     1                              <1> ; -------------------------------------------------------------------
+     2                              <1> ; Screen composition
+     3                              <1> ; -------------------------------------------------------------------
+     4                              <1> DrawBackground:
+     5 000005EE 60                  <1>     pusha
+     6 000005EF 31F6                <1>     xor si,si
+     7 000005F1 31DB                <1>     xor bx,bx
+     8                              <1> .b:
+     9 000005F3 89F0                <1>     mov ax,si
+    10 000005F5 0420                <1>     add al,32
+    11 000005F7 A2[4E0E]            <1>     mov [FillCol],al
+    12 000005FA 31C0                <1>     xor ax,ax
+    13 000005FC B94001              <1>     mov cx,320
+    14 000005FF BA0A00              <1>     mov dx,10
+    15 00000602 E8AFFE              <1>     call FillRect
+    16 00000605 83C30A              <1>     add bx,10
+    17 00000608 46                  <1>     inc si
+    18 00000609 83FE14              <1>     cmp si,20
+    19 0000060C 72E5                <1>     jb .b
+    20 0000060E 61                  <1>     popa
+    21 0000060F C3                  <1>     ret
+    22                              <1> 
+    23                              <1> DrawStatic:
+    24 00000610 60                  <1>     pusha
+    25 00000611 E8DAFF              <1>     call DrawBackground
+    26                              <1> 
+    27 00000614 C606[4E0E]00        <1>     mov byte [FillCol],0        ; window drop shadow
+    28 00000619 B85500              <1>     mov ax,85
+    29 0000061C BB0700              <1>     mov bx,7
+    30 0000061F B99E00              <1>     mov cx,158
+    31 00000622 BAC100              <1>     mov dx,193
+    32 00000625 E88CFE              <1>     call FillRect
+    33                              <1> 
+    34                              <1>     BEVEL 1,81,3,158,193,7      ; window
+    16 00000628 C606[510E]07        <2>  mov byte [BevFace],%6
+    17                              <2>  %if %1
+    18 0000062D C606[4F0E]0F        <2>  mov byte [BevTL],15
+    19 00000632 C606[500E]08        <2>  mov byte [BevBR],8
+    20                              <2>  %else
+    21                              <2>  mov byte [BevTL],8
+    22                              <2>  mov byte [BevBR],15
+    23                              <2>  %endif
+    24 00000637 B85100              <2>  mov ax,%2
+    25 0000063A BB0300              <2>  mov bx,%3
+    26 0000063D B99E00              <2>  mov cx,%4
+    27 00000640 BAC100              <2>  mov dx,%5
+    28 00000643 E89BFE              <2>  call DrawBevel
+    35                              <1>     BEVEL 0,86,8,148,30,7       ; header panel
+    16 00000646 C606[510E]07        <2>  mov byte [BevFace],%6
+    17                              <2>  %if %1
+    18                              <2>  mov byte [BevTL],15
+    19                              <2>  mov byte [BevBR],8
+    20                              <2>  %else
+    21 0000064B C606[4F0E]08        <2>  mov byte [BevTL],8
+    22 00000650 C606[500E]0F        <2>  mov byte [BevBR],15
+    23                              <2>  %endif
+    24 00000655 B85600              <2>  mov ax,%2
+    25 00000658 BB0800              <2>  mov bx,%3
+    26 0000065B B99400              <2>  mov cx,%4
+    27 0000065E BA1E00              <2>  mov dx,%5
+    28 00000661 E87DFE              <2>  call DrawBevel
+    36                              <1>     BEVEL 0,86,43,148,148,7     ; board frame
+    16 00000664 C606[510E]07        <2>  mov byte [BevFace],%6
+    17                              <2>  %if %1
+    18                              <2>  mov byte [BevTL],15
+    19                              <2>  mov byte [BevBR],8
+    20                              <2>  %else
+    21 00000669 C606[4F0E]08        <2>  mov byte [BevTL],8
+    22 0000066E C606[500E]0F        <2>  mov byte [BevBR],15
+    23                              <2>  %endif
+    24 00000673 B85600              <2>  mov ax,%2
+    25 00000676 BB2B00              <2>  mov bx,%3
+    26 00000679 B99400              <2>  mov cx,%4
+    27 0000067C BA9400              <2>  mov dx,%5
+    28 0000067F E85FFE              <2>  call DrawBevel
+    37                              <1> 
+    38                              <1>     TXT 1,1,14,'MINE'
+    33 00000682 EB05                <2>  jmp short %%skip
+    34 00000684 4D494E4500          <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 00000689 B601                <2>  mov dh,%1
+    37 0000068B B201                <2>  mov dl,%2
+    38 0000068D B30E                <2>  mov bl,%3
+    39 0000068F BE[8406]            <2>  mov si,%%str
+    40 00000692 E845FF              <2>  call PrintAt
+    39                              <1>     TXT 2,1,14,'SWEEPER'
+    33 00000695 EB08                <2>  jmp short %%skip
+    34 00000697 5357454550455200    <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 0000069F B602                <2>  mov dh,%1
+    37 000006A1 B201                <2>  mov dl,%2
+    38 000006A3 B30E                <2>  mov bl,%3
+    39 000006A5 BE[9706]            <2>  mov si,%%str
+    40 000006A8 E82FFF              <2>  call PrintAt
+    40                              <1>     TXT 5,1,15,'CONTROLS'
+    33 000006AB EB09                <2>  jmp short %%skip
+    34 000006AD 434F4E54524F4C5300  <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 000006B6 B605                <2>  mov dh,%1
+    37 000006B8 B201                <2>  mov dl,%2
+    38 000006BA B30F                <2>  mov bl,%3
+    39 000006BC BE[AD06]            <2>  mov si,%%str
+    40 000006BF E818FF              <2>  call PrintAt
+    41                              <1>     TXT 7,1,11,'L-Click'
+    33 000006C2 EB08                <2>  jmp short %%skip
+    34 000006C4 4C2D436C69636B00    <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 000006CC B607                <2>  mov dh,%1
+    37 000006CE B201                <2>  mov dl,%2
+    38 000006D0 B30B                <2>  mov bl,%3
+    39 000006D2 BE[C406]            <2>  mov si,%%str
+    40 000006D5 E802FF              <2>  call PrintAt
+    42                              <1>     TXT 8,1,7,'open tile'
+    33 000006D8 EB0A                <2>  jmp short %%skip
+    34 000006DA 6F70656E2074696C65- <2> %%str: db %4,0
+    34 000006E3 00                  <2>
+    35                              <2> %%skip:
+    36 000006E4 B608                <2>  mov dh,%1
+    37 000006E6 B201                <2>  mov dl,%2
+    38 000006E8 B307                <2>  mov bl,%3
+    39 000006EA BE[DA06]            <2>  mov si,%%str
+    40 000006ED E8EAFE              <2>  call PrintAt
+    43                              <1>     TXT 10,1,11,'R-Click'
+    33 000006F0 EB08                <2>  jmp short %%skip
+    34 000006F2 522D436C69636B00    <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 000006FA B60A                <2>  mov dh,%1
+    37 000006FC B201                <2>  mov dl,%2
+    38 000006FE B30B                <2>  mov bl,%3
+    39 00000700 BE[F206]            <2>  mov si,%%str
+    40 00000703 E8D4FE              <2>  call PrintAt
+    44                              <1>     TXT 11,1,7,'flag tile'
+    33 00000706 EB0A                <2>  jmp short %%skip
+    34 00000708 666C61672074696C65- <2> %%str: db %4,0
+    34 00000711 00                  <2>
+    35                              <2> %%skip:
+    36 00000712 B60B                <2>  mov dh,%1
+    37 00000714 B201                <2>  mov dl,%2
+    38 00000716 B307                <2>  mov bl,%3
+    39 00000718 BE[0807]            <2>  mov si,%%str
+    40 0000071B E8BCFE              <2>  call PrintAt
+    45                              <1>     TXT 13,1,11,'R / Face'
+    33 0000071E EB09                <2>  jmp short %%skip
+    34 00000720 52202F204661636500  <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 00000729 B60D                <2>  mov dh,%1
+    37 0000072B B201                <2>  mov dl,%2
+    38 0000072D B30B                <2>  mov bl,%3
+    39 0000072F BE[2007]            <2>  mov si,%%str
+    40 00000732 E8A5FE              <2>  call PrintAt
+    46                              <1>     TXT 14,1,7,'new game'
+    33 00000735 EB09                <2>  jmp short %%skip
+    34 00000737 6E65772067616D6500  <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 00000740 B60E                <2>  mov dh,%1
+    37 00000742 B201                <2>  mov dl,%2
+    38 00000744 B307                <2>  mov bl,%3
+    39 00000746 BE[3707]            <2>  mov si,%%str
+    40 00000749 E88EFE              <2>  call PrintAt
+    47                              <1>     TXT 16,1,11,'ESC'
+    33 0000074C EB04                <2>  jmp short %%skip
+    34 0000074E 45534300            <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 00000752 B610                <2>  mov dh,%1
+    37 00000754 B201                <2>  mov dl,%2
+    38 00000756 B30B                <2>  mov bl,%3
+    39 00000758 BE[4E07]            <2>  mov si,%%str
+    40 0000075B E87CFE              <2>  call PrintAt
+    48                              <1>     TXT 17,1,7,'quit'
+    33 0000075E EB05                <2>  jmp short %%skip
+    34 00000760 7175697400          <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 00000765 B611                <2>  mov dh,%1
+    37 00000767 B201                <2>  mov dl,%2
+    38 00000769 B307                <2>  mov bl,%3
+    39 0000076B BE[6007]            <2>  mov si,%%str
+    40 0000076E E869FE              <2>  call PrintAt
+    49                              <1>     TXT 19,1,11,'M'
+    33 00000771 EB02                <2>  jmp short %%skip
+    34 00000773 4D00                <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 00000775 B613                <2>  mov dh,%1
+    37 00000777 B201                <2>  mov dl,%2
+    38 00000779 B30B                <2>  mov bl,%3
+    39 0000077B BE[7307]            <2>  mov si,%%str
+    40 0000077E E859FE              <2>  call PrintAt
+    50                              <1>     TXT 20,1,7,'music'
+    33 00000781 EB06                <2>  jmp short %%skip
+    34 00000783 6D7573696300        <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 00000789 B614                <2>  mov dh,%1
+    37 0000078B B201                <2>  mov dl,%2
+    38 0000078D B307                <2>  mov bl,%3
+    39 0000078F BE[8307]            <2>  mov si,%%str
+    40 00000792 E845FE              <2>  call PrintAt
+    51                              <1> 
+    52                              <1>     TXT 1,31,15,'STATUS'
+    33 00000795 EB07                <2>  jmp short %%skip
+    34 00000797 53544154555300      <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 0000079E B601                <2>  mov dh,%1
+    37 000007A0 B21F                <2>  mov dl,%2
+    38 000007A2 B30F                <2>  mov bl,%3
+    39 000007A4 BE[9707]            <2>  mov si,%%str
+    40 000007A7 E830FE              <2>  call PrintAt
+    53                              <1>     TXT 6,31,15,'BOARD'
+    33 000007AA EB06                <2>  jmp short %%skip
+    34 000007AC 424F41524400        <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 000007B2 B606                <2>  mov dh,%1
+    37 000007B4 B21F                <2>  mov dl,%2
+    38 000007B6 B30F                <2>  mov bl,%3
+    39 000007B8 BE[AC07]            <2>  mov si,%%str
+    40 000007BB E81CFE              <2>  call PrintAt
+    54                              <1>     TXT 7,31,7,'9x9 grid'
+    33 000007BE EB09                <2>  jmp short %%skip
+    34 000007C0 397839206772696400  <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 000007C9 B607                <2>  mov dh,%1
+    37 000007CB B21F                <2>  mov dl,%2
+    38 000007CD B307                <2>  mov bl,%3
+    39 000007CF BE[C007]            <2>  mov si,%%str
+    40 000007D2 E805FE              <2>  call PrintAt
+    55                              <1>     TXT 8,31,7,'10 mines'
+    33 000007D5 EB09                <2>  jmp short %%skip
+    34 000007D7 3130206D696E657300  <2> %%str: db %4,0
+    35                              <2> %%skip:
+    36 000007E0 B608                <2>  mov dh,%1
+    37 000007E2 B21F                <2>  mov dl,%2
+    38 000007E4 B307                <2>  mov bl,%3
+    39 000007E6 BE[D707]            <2>  mov si,%%str
+    40 000007E9 E8EEFD              <2>  call PrintAt
+    56 000007EC 61                  <1>     popa
+    57 000007ED C3                  <1>     ret
+    58                              <1> 
+    59                              <1> Redraw:
+    60 000007EE 60                  <1>     pusha
+    61                              <1>     HIDEM
+     5 000007EF B80200              <2>  mov ax,2
+     6 000007F2 CD33                <2>  int 33h
+    62 000007F4 E82300              <1>     call RenderBoard
+    63 000007F7 E80B01              <1>     call DrawHeader
+    64 000007FA E81E02              <1>     call DrawStatus
+    65                              <1>     SHOWM
+    10 000007FD B80100              <2>  mov ax,1
+    11 00000800 CD33                <2>  int 33h
+    66 00000802 61                  <1>     popa
+    67 00000803 C3                  <1>     ret
+    68                              <1> 
+    69                              <1> DrawTimer:
+    70 00000804 60                  <1>     pusha
+    71                              <1>     HIDEM
+     5 00000805 B80200              <2>  mov ax,2
+     6 00000808 CD33                <2>  int 33h
+    72 0000080A A1[750E]            <1>     mov ax,[Seconds]
+    73 0000080D BFBE00              <1>     mov di,190
+    74 00000810 E81E01              <1>     call DrawLed
+    75                              <1>     SHOWM
+    10 00000813 B80100              <2>  mov ax,1
+    11 00000816 CD33                <2>  int 33h
+    76 00000818 61                  <1>     popa
+    77 00000819 C3                  <1>     ret
+    78                              <1> 
+    79                              <1> RenderBoard:
+    80 0000081A 60                  <1>     pusha
+    81 0000081B 31F6                <1>     xor si,si
+    82 0000081D 30ED                <1>     xor ch,ch
+    83                              <1> .row:
+    84 0000081F 30C9                <1>     xor cl,cl
+    85                              <1> .col:
+    86 00000821 88C8                <1>     mov al,cl
+    87 00000823 30E4                <1>     xor ah,ah
+    88 00000825 C1E004              <1>     shl ax,4
+    89 00000828 83C058              <1>     add ax,START_X
+    90 0000082B A3[5A0E]            <1>     mov [OrgX],ax
+    91 0000082E 88E8                <1>     mov al,ch
+    92 00000830 30E4                <1>     xor ah,ah
+    93 00000832 C1E004              <1>     shl ax,4
+    94 00000835 83C02D              <1>     add ax,START_Y
+    95 00000838 A3[5C0E]            <1>     mov [OrgY],ax
+    96 0000083B 8A84[7F0E]          <1>     mov al,[Board+si]
+    97 0000083F E81100              <1>     call DrawCell
+    98 00000842 46                  <1>     inc si
+    99 00000843 FEC1                <1>     inc cl
+   100 00000845 80F909              <1>     cmp cl,GRID_COLS
+   101 00000848 72D7                <1>     jb .col
+   102 0000084A FEC5                <1>     inc ch
+   103 0000084C 80FD09              <1>     cmp ch,GRID_ROWS
+   104 0000084F 72CE                <1>     jb .row
+   105 00000851 61                  <1>     popa
+   106 00000852 C3                  <1>     ret
+   107                              <1> 
+   108                              <1> ; AL = cell byte, SI = cell index, tile origin in [OrgX],[OrgY]
+   109                              <1> DrawCell:
+   110 00000853 60                  <1>     pusha
+   111 00000854 A2[5E0E]            <1>     mov [CellVal],al
+   112 00000857 A802                <1>     test al,2
+   113 00000859 7530                <1>     jnz .opened
+   114                              <1> 
+   115                              <1>     BEVEL 1,[OrgX],[OrgY],16,16,7     ; raised, unopened tile
+    16 0000085B C606[510E]07        <2>  mov byte [BevFace],%6
+    17                              <2>  %if %1
+    18 00000860 C606[4F0E]0F        <2>  mov byte [BevTL],15
+    19 00000865 C606[500E]08        <2>  mov byte [BevBR],8
+    20                              <2>  %else
+    21                              <2>  mov byte [BevTL],8
+    22                              <2>  mov byte [BevBR],15
+    23                              <2>  %endif
+    24 0000086A A1[5A0E]            <2>  mov ax,%2
+    25 0000086D 8B1E[5C0E]          <2>  mov bx,%3
+    26 00000871 B91000              <2>  mov cx,%4
+    27 00000874 BA1000              <2>  mov dx,%5
+    28 00000877 E867FC              <2>  call DrawBevel
+   116 0000087A F606[5E0E]04        <1>     test byte [CellVal],4
+   117 0000087F 0F848000            <1>     jz .out
+   118 00000883 BE[CC0A]            <1>     mov si,FlagRects
+   119 00000886 E8C4FC              <1>     call DrawRects
+   120 00000889 EB78                <1>     jmp .out
+   121                              <1> 
+   122                              <1> .opened:
+   123 0000088B B007                <1>     mov al,7
+   124 0000088D 3B36[7B0E]          <1>     cmp si,[HitCell]
+   125 00000891 7502                <1>     jne .col
+   126 00000893 B00C                <1>     mov al,12                   ; the mine you stepped on
+   127                              <1> .col:
+   128 00000895 A2[5F0E]            <1>     mov [CellCol],al
+   129 00000898 C606[4E0E]08        <1>     mov byte [FillCol],8        ; thin dark border
+   130 0000089D A1[5A0E]            <1>     mov ax,[OrgX]
+   131 000008A0 8B1E[5C0E]          <1>     mov bx,[OrgY]
+   132 000008A4 B91000              <1>     mov cx,16
+   133 000008A7 BA1000              <1>     mov dx,16
+   134 000008AA E807FC              <1>     call FillRect
+   135 000008AD A0[5F0E]            <1>     mov al,[CellCol]
+   136 000008B0 A2[4E0E]            <1>     mov [FillCol],al
+   137 000008B3 A1[5A0E]            <1>     mov ax,[OrgX]
+   138 000008B6 40                  <1>     inc ax
+   139 000008B7 8B1E[5C0E]          <1>     mov bx,[OrgY]
+   140 000008BB 43                  <1>     inc bx
+   141 000008BC B90F00              <1>     mov cx,15
+   142 000008BF BA0F00              <1>     mov dx,15
+   143 000008C2 E8EFFB              <1>     call FillRect
+   144                              <1> 
+   145 000008C5 A0[5E0E]            <1>     mov al,[CellVal]
+   146 000008C8 A801                <1>     test al,1
+   147 000008CA 7408                <1>     jz .number
+   148 000008CC BE[FF0A]            <1>     mov si,MineRects
+   149 000008CF E87BFC              <1>     call DrawRects
+   150 000008D2 EB2F                <1>     jmp .out
+   151                              <1> .number:
+   152 000008D4 C0E804              <1>     shr al,4
+   153 000008D7 742A                <1>     jz .out
+   154 000008D9 88C3                <1>     mov bl,al
+   155 000008DB 30FF                <1>     xor bh,bh
+   156 000008DD 8A97[910A]          <1>     mov dl,[NumColors+bx-1]
+   157 000008E1 8816[650E]          <1>     mov [GlC],dl
+   158 000008E5 C606[640E]02        <1>     mov byte [GlS],2
+   159 000008EA 8B16[5A0E]          <1>     mov dx,[OrgX]
+   160 000008EE 83C205              <1>     add dx,5
+   161 000008F1 8916[600E]          <1>     mov [GlX],dx
+   162 000008F5 8B16[5C0E]          <1>     mov dx,[OrgY]
+   163 000008F9 83C203              <1>     add dx,3
+   164 000008FC 8916[620E]          <1>     mov [GlY],dx
+   165 00000900 E877FC              <1>     call DrawGlyph
+   166                              <1> .out:
+   167 00000903 61                  <1>     popa
+   168 00000904 C3                  <1>     ret
+   169                              <1> 
+   170                              <1> DrawHeader:
+   171 00000905 60                  <1>     pusha
+   172 00000906 31C9                <1>     xor cx,cx                   ; count flags
+   173 00000908 31F6                <1>     xor si,si
+   174                              <1> .cnt:
+   175 0000090A F684[7F0E]04        <1>     test byte [Board+si],4
+   176 0000090F 7401                <1>     jz .nx
+   177 00000911 41                  <1>     inc cx
+   178                              <1> .nx:
+   179 00000912 46                  <1>     inc si
+   180 00000913 83FE51              <1>     cmp si,CELLS
+   181 00000916 72F2                <1>     jb .cnt
+   182 00000918 B80A00              <1>     mov ax,TOTAL_MINES
+   183 0000091B 29C8                <1>     sub ax,cx                   ; mines left (may go negative)
+   184 0000091D BF5B00              <1>     mov di,91
+   185 00000920 E80E00              <1>     call DrawLed
+   186 00000923 A1[750E]            <1>     mov ax,[Seconds]
+   187 00000926 BFBE00              <1>     mov di,190
+   188 00000929 E80500              <1>     call DrawLed
+   189 0000092C E8A200              <1>     call DrawFace
+   190 0000092F 61                  <1>     popa
+   191 00000930 C3                  <1>     ret
+   192                              <1> 
+   193                              <1> ; LED counter: AX = signed value, DI = box x
+   194                              <1> DrawLed:
+   195 00000931 60                  <1>     pusha
+   196 00000932 A3[690E]            <1>     mov [LedVal],ax
+   197 00000935 893E[6B0E]          <1>     mov [LedX],di
+   198                              <1>     BEVEL 0,di,12,39,21,0
+    16 00000939 C606[510E]00        <2>  mov byte [BevFace],%6
+    17                              <2>  %if %1
+    18                              <2>  mov byte [BevTL],15
+    19                              <2>  mov byte [BevBR],8
+    20                              <2>  %else
+    21 0000093E C606[4F0E]08        <2>  mov byte [BevTL],8
+    22 00000943 C606[500E]0F        <2>  mov byte [BevBR],15
+    23                              <2>  %endif
+    24 00000948 89F8                <2>  mov ax,%2
+    25 0000094A BB0C00              <2>  mov bx,%3
+    26 0000094D B92700              <2>  mov cx,%4
+    27 00000950 BA1500              <2>  mov dx,%5
+    28 00000953 E88BFB              <2>  call DrawBevel
+   199                              <1> 
+   200 00000956 C606[640E]03        <1>     mov byte [GlS],3
+   201 0000095B C606[650E]0C        <1>     mov byte [GlC],12
+   202 00000960 C706[620E]0F00      <1>     mov word [GlY],15
+   203 00000966 8B1E[6B0E]          <1>     mov bx,[LedX]
+   204 0000096A 83C303              <1>     add bx,3
+   205 0000096D 891E[600E]          <1>     mov [GlX],bx
+   206 00000971 A1[690E]            <1>     mov ax,[LedVal]
+   207 00000974 09C0                <1>     or ax,ax
+   208 00000976 792B                <1>     jns .pos
+   209 00000978 F7D8                <1>     neg ax
+   210 0000097A 83F863              <1>     cmp ax,99
+   211 0000097D 7603                <1>     jbe .negok
+   212 0000097F B86300              <1>     mov ax,99
+   213                              <1> .negok:
+   214 00000982 A3[690E]            <1>     mov [LedVal],ax
+   215 00000985 C606[4E0E]0C        <1>     mov byte [FillCol],12       ; minus sign
+   216 0000098A A1[600E]            <1>     mov ax,[GlX]
+   217 0000098D BB1500              <1>     mov bx,21
+   218 00000990 B90900              <1>     mov cx,9
+   219 00000993 BA0300              <1>     mov dx,3
+   220 00000996 E81BFB              <1>     call FillRect
+   221 00000999 8306[600E]0C        <1>     add word [GlX],12
+   222 0000099E A1[690E]            <1>     mov ax,[LedVal]
+   223 000009A1 EB19                <1>     jmp .two
+   224                              <1> .pos:
+   225 000009A3 3DE703              <1>     cmp ax,999
+   226 000009A6 7603                <1>     jbe .three
+   227 000009A8 B8E703              <1>     mov ax,999
+   228                              <1> .three:
+   229 000009AB 31D2                <1>     xor dx,dx
+   230 000009AD BB6400              <1>     mov bx,100
+   231 000009B0 F7F3                <1>     div bx
+   232 000009B2 52                  <1>     push dx
+   233 000009B3 E8C4FB              <1>     call DrawGlyph
+   234 000009B6 8306[600E]0C        <1>     add word [GlX],12
+   235 000009BB 58                  <1>     pop ax
+   236                              <1> .two:
+   237 000009BC B30A                <1>     mov bl,10
+   238 000009BE F6F3                <1>     div bl                      ; AL tens, AH ones
+   239 000009C0 50                  <1>     push ax
+   240 000009C1 E8B6FB              <1>     call DrawGlyph
+   241 000009C4 8306[600E]0C        <1>     add word [GlX],12
+   242 000009C9 58                  <1>     pop ax
+   243 000009CA 88E0                <1>     mov al,ah
+   244 000009CC E8ABFB              <1>     call DrawGlyph
+   245 000009CF 61                  <1>     popa
+   246 000009D0 C3                  <1>     ret
+   247                              <1> 
+   248                              <1> DrawFace:
+   249 000009D1 60                  <1>     pusha
+   250                              <1>     BEVEL 1,149,12,22,22,7
+    16 000009D2 C606[510E]07        <2>  mov byte [BevFace],%6
+    17                              <2>  %if %1
+    18 000009D7 C606[4F0E]0F        <2>  mov byte [BevTL],15
+    19 000009DC C606[500E]08        <2>  mov byte [BevBR],8
+    20                              <2>  %else
+    21                              <2>  mov byte [BevTL],8
+    22                              <2>  mov byte [BevBR],15
+    23                              <2>  %endif
+    24 000009E1 B89500              <2>  mov ax,%2
+    25 000009E4 BB0C00              <2>  mov bx,%3
+    26 000009E7 B91600              <2>  mov cx,%4
+    27 000009EA BA1600              <2>  mov dx,%5
+    28 000009ED E8F1FA              <2>  call DrawBevel
+   251 000009F0 C706[5A0E]9800      <1>     mov word [OrgX],152
+   252 000009F6 C706[5C0E]0F00      <1>     mov word [OrgY],15
+   253 000009FC BE[320B]            <1>     mov si,FaceDisc
+   254 000009FF E84BFB              <1>     call DrawRects
+   255 00000A02 A0[720E]            <1>     mov al,[GameOver]
+   256 00000A05 BE[5B0B]            <1>     mov si,FaceHappy
+   257 00000A08 3C01                <1>     cmp al,1
+   258 00000A0A 7503                <1>     jne .n1
+   259 00000A0C BE[750B]            <1>     mov si,FaceDead
+   260                              <1> .n1:
+   261 00000A0F 3C02                <1>     cmp al,2
+   262 00000A11 7503                <1>     jne .go
+   263 00000A13 BE[B70B]            <1>     mov si,FaceCool
+   264                              <1> .go:
+   265 00000A16 E834FB              <1>     call DrawRects
+   266 00000A19 61                  <1>     popa
+   267 00000A1A C3                  <1>     ret
+   268                              <1> 
+   269                              <1> DrawStatus:
+   270 00000A1B 60                  <1>     pusha
+   271                              <1>     BEVEL 0,244,20,72,16,0
+    16 00000A1C C606[510E]00        <2>  mov byte [BevFace],%6
+    17                              <2>  %if %1
+    18                              <2>  mov byte [BevTL],15
+    19                              <2>  mov byte [BevBR],8
+    20                              <2>  %else
+    21 00000A21 C606[4F0E]08        <2>  mov byte [BevTL],8
+    22 00000A26 C606[500E]0F        <2>  mov byte [BevBR],15
+    23                              <2>  %endif
+    24 00000A2B B8F400              <2>  mov ax,%2
+    25 00000A2E BB1400              <2>  mov bx,%3
+    26 00000A31 B94800              <2>  mov cx,%4
+    27 00000A34 BA1000              <2>  mov dx,%5
+    28 00000A37 E8A7FA              <2>  call DrawBevel
+   272 00000A3A BE[5D0A]            <1>     mov si,StrPlay
+   273 00000A3D B30A                <1>     mov bl,10
+   274 00000A3F A0[720E]            <1>     mov al,[GameOver]
+   275 00000A42 3C01                <1>     cmp al,1
+   276 00000A44 7505                <1>     jne .n1
+   277 00000A46 BE[650A]            <1>     mov si,StrLost
+   278 00000A49 B30C                <1>     mov bl,12
+   279                              <1> .n1:
+   280 00000A4B 3C02                <1>     cmp al,2
+   281 00000A4D 7505                <1>     jne .go
+   282 00000A4F BE[6B0A]            <1>     mov si,StrWin
+   283 00000A52 B30E                <1>     mov bl,14
+   284                              <1> .go:
+   285 00000A54 B603                <1>     mov dh,3
+   286 00000A56 B21F                <1>     mov dl,31
+   287 00000A58 E87FFB              <1>     call PrintAt
+   288 00000A5B 61                  <1>     popa
+   289 00000A5C C3                  <1>     ret
+    38                                  
+    39                                  ; --- data ----------------------------------------------------------
+    40                                  %include "src/data.asm"         ; strings, palette data, font, sprites
+     1                              <1> ; ===================================================================
+     2                              <1> ; DATA
+     3                              <1> ; ===================================================================
+     4 00000A5D 506C6179696E6700    <1> StrPlay     db 'Playing',0
+     5 00000A65 424F4F4D2100        <1> StrLost     db 'BOOM!',0
+     6 00000A6B 596F752077696E2100  <1> StrWin      db 'You win!',0
+     7                              <1> 
+     8 00000A74 303030202020        <1> PalGrays    db 48,48,48, 32,32,32
+     9 00000A7A 00003F0020003F0000- <1> PalNums     db 0,0,63,  0,32,0,  63,0,0,  0,0,32
+     9 00000A83 000020              <1>
+    10 00000A86 200000002020000000- <1>             db 32,0,0,  0,32,32, 0,0,0,   32,32,32
+    10 00000A8F 202020              <1>
+    11 00000A92 3435363738393A3B    <1> NumColors   db 52,53,54,55,56,57,58,59
+    12                              <1> 
+    13                              <1> ; 3x5 font, digits 0..9, one byte per row (bits 2..0 = pixels)
+    14 00000A9A 0705050507          <1> Font3x5     db 7,5,5,5,7        ; 0
+    15 00000A9F 0206020207          <1>             db 2,6,2,2,7        ; 1
+    16 00000AA4 0701070407          <1>             db 7,1,7,4,7        ; 2
+    17 00000AA9 0701070107          <1>             db 7,1,7,1,7        ; 3
+    18 00000AAE 0505070101          <1>             db 5,5,7,1,1        ; 4
+    19 00000AB3 0704070107          <1>             db 7,4,7,1,7        ; 5
+    20 00000AB8 0704070507          <1>             db 7,4,7,5,7        ; 6
+    21 00000ABD 0701020202          <1>             db 7,1,2,2,2        ; 7
+    22 00000AC2 0705070507          <1>             db 7,5,7,5,7        ; 8
+    23 00000AC7 0705070107          <1>             db 7,5,7,1,7        ; 9
+    24                              <1> 
+    25                              <1> ; Sprite = list of rectangles: x, y, w, h, colour  (0FFh terminates)
+    26 00000ACC 060301010C          <1> FlagRects   db 6,3,1,1,12       ; red pennant
+    27 00000AD1 050402010C          <1>             db 5,4,2,1,12
+    28 00000AD6 040503010C          <1>             db 4,5,3,1,12
+    29 00000ADB 030604010C          <1>             db 3,6,4,1,12
+    30 00000AE0 040703010C          <1>             db 4,7,3,1,12
+    31 00000AE5 050802010C          <1>             db 5,8,2,1,12
+    32 00000AEA 060901010C          <1>             db 6,9,1,1,12
+    33 00000AEF 0703020900          <1>             db 7,3,2,9,0        ; pole
+    34 00000AF4 050B060100          <1>             db 5,11,6,1,0       ; base
+    35 00000AF9 030C0A0200          <1>             db 3,12,10,2,0
+    36 00000AFE FF                  <1>             db 0FFh
+    37                              <1> 
+    38 00000AFF 0504060100          <1> MineRects   db 5,4,6,1,0
+    39 00000B04 0405080600          <1>             db 4,5,8,6,0
+    40 00000B09 050B060100          <1>             db 5,11,6,1,0
+    41 00000B0E 02070C0200          <1>             db 2,7,12,2,0
+    42 00000B13 0702020C00          <1>             db 7,2,2,12,0
+    43 00000B18 0303020200          <1>             db 3,3,2,2,0
+    44 00000B1D 0B03020200          <1>             db 11,3,2,2,0
+    45 00000B22 030B020200          <1>             db 3,11,2,2,0
+    46 00000B27 0B0B020200          <1>             db 11,11,2,2,0
+    47 00000B2C 050502020F          <1>             db 5,5,2,2,15       ; glint
+    48 00000B31 FF                  <1>             db 0FFh
+    49                              <1> 
+    50 00000B32 050006010E          <1> FaceDisc    db 5,0,6,1,14
+    51 00000B37 03010A010E          <1>             db 3,1,10,1,14
+    52 00000B3C 02020C010E          <1>             db 2,2,12,1,14
+    53 00000B41 01030E0A0E          <1>             db 1,3,14,10,14
+    54 00000B46 000510060E          <1>             db 0,5,16,6,14
+    55 00000B4B 020D0C010E          <1>             db 2,13,12,1,14
+    56 00000B50 030E0A010E          <1>             db 3,14,10,1,14
+    57 00000B55 050F06010E          <1>             db 5,15,6,1,14
+    58 00000B5A FF                  <1>             db 0FFh
+    59                              <1> 
+    60 00000B5B 0405020300          <1> FaceHappy   db 4,5,2,3,0
+    61 00000B60 0A05020300          <1>             db 10,5,2,3,0
+    62 00000B65 0409010100          <1>             db 4,9,1,1,0
+    63 00000B6A 0B09010100          <1>             db 11,9,1,1,0
+    64 00000B6F 050A060100          <1>             db 5,10,6,1,0
+    65 00000B74 FF                  <1>             db 0FFh
+    66                              <1> 
+    67 00000B75 0304010100          <1> FaceDead    db 3,4,1,1,0        ; X eyes
+    68 00000B7A 0504010100          <1>             db 5,4,1,1,0
+    69 00000B7F 0405010100          <1>             db 4,5,1,1,0
+    70 00000B84 0306010100          <1>             db 3,6,1,1,0
+    71 00000B89 0506010100          <1>             db 5,6,1,1,0
+    72 00000B8E 0A04010100          <1>             db 10,4,1,1,0
+    73 00000B93 0C04010100          <1>             db 12,4,1,1,0
+    74 00000B98 0B05010100          <1>             db 11,5,1,1,0
+    75 00000B9D 0A06010100          <1>             db 10,6,1,1,0
+    76 00000BA2 0C06010100          <1>             db 12,6,1,1,0
+    77 00000BA7 050A060100          <1>             db 5,10,6,1,0       ; frown
+    78 00000BAC 040B010100          <1>             db 4,11,1,1,0
+    79 00000BB1 0B0B010100          <1>             db 11,11,1,1,0
+    80 00000BB6 FF                  <1>             db 0FFh
+    81                              <1> 
+    82 00000BB7 0204050300          <1> FaceCool    db 2,4,5,3,0        ; sunglasses
+    83 00000BBC 0904050300          <1>             db 9,4,5,3,0
+    84 00000BC1 0704020100          <1>             db 7,4,2,1,0
+    85 00000BC6 030501010F          <1>             db 3,5,1,1,15
+    86 00000BCB 0A0501010F          <1>             db 10,5,1,1,15
+    87 00000BD0 0409010100          <1>             db 4,9,1,1,0
+    88 00000BD5 0B09010100          <1>             db 11,9,1,1,0
+    89 00000BDA 050A060100          <1>             db 5,10,6,1,0
+    90 00000BDF FF                  <1>             db 0FFh
+    41                                  %include "src/music.asm"        ; SongTable
+     1                              <1> ; -------------------------------------------------------------------
+     2                              <1> ; MODERN RETRO INDIE RIFF (fast tempo)
+     3                              <1> ; Pairs of: (Frequency in Hz, Duration in 18.2Hz timer ticks)
+     4                              <1> ; -------------------------------------------------------------------
+     5                              <1> SongTable:
+     6                              <1>     ; ===================================================================
+     7                              <1>     ; PART 1: BASE THEME
+     8                              <1>     ; ===================================================================
+     9                              <1>     ; Riff 1: D Root
+    10 00000BE0 26010200260102004B- <1>     dw 294,2, 294,2, 587,4, 440,6, 415,4, 392,4, 349,4, 294,2, 349,2, 392,2
+    10 00000BE9 020400B80106009F01- <1>
+    10 00000BF2 0400880104005D0104- <1>
+    10 00000BFB 00260102005D010200- <1>
+    10 00000C04 88010200            <1>
+    11                              <1>     ; Riff 2: C Root
+    12 00000C08 06010200060102004B- <1>     dw 262,2, 262,2, 587,4, 440,6, 415,4, 392,4, 349,4, 294,2, 349,2, 392,2
+    12 00000C11 020400B80106009F01- <1>
+    12 00000C1A 0400880104005D0104- <1>
+    12 00000C23 00260102005D010200- <1>
+    12 00000C2C 88010200            <1>
+    13                              <1>     ; Riff 3: B Root
+    14 00000C30 F7000200F70002004B- <1>     dw 247,2, 247,2, 587,4, 440,6, 415,4, 392,4, 349,4, 294,2, 349,2, 392,2
+    14 00000C39 020400B80106009F01- <1>
+    14 00000C42 0400880104005D0104- <1>
+    14 00000C4B 00260102005D010200- <1>
+    14 00000C54 88010200            <1>
+    15                              <1>     ; Riff 4: Bb Root
+    16 00000C58 E9000200E90002004B- <1>     dw 233,2, 233,2, 587,4, 440,6, 415,4, 392,4, 349,4, 294,2, 349,2, 392,2
+    16 00000C61 020400B80106009F01- <1>
+    16 00000C6A 0400880104005D0104- <1>
+    16 00000C73 00260102005D010200- <1>
+    16 00000C7C 88010200            <1>
+    17                              <1> 
+    18                              <1>     ; ===================================================================
+    19                              <1>     ; PART 2: HIGH OCTAVE LEAD (Pitch shift for dynamic buildup)
+    20                              <1>     ; ===================================================================
+    21                              <1>     ; Riff 1: D Root (High Lead)
+    22 00000C80 260102002601020097- <1>     dw 294,2, 294,2, 1175,4, 880,6, 830,4, 784,4, 698,4, 587,2, 698,2, 784,2
+    22 00000C89 040400700306003E03- <1>
+    22 00000C92 040010030400BA0204- <1>
+    22 00000C9B 004B020200BA020200- <1>
+    22 00000CA4 10030200            <1>
+    23                              <1>     ; Riff 2: C Root (High Lead)
+    24 00000CA8 060102000601020097- <1>     dw 262,2, 262,2, 1175,4, 880,6, 830,4, 784,4, 698,4, 587,2, 698,2, 784,2
+    24 00000CB1 040400700306003E03- <1>
+    24 00000CBA 040010030400BA0204- <1>
+    24 00000CC3 004B020200BA020200- <1>
+    24 00000CCC 10030200            <1>
+    25                              <1>     ; Riff 3: B Root (High Lead)
+    26 00000CD0 F7000200F700020097- <1>     dw 247,2, 247,2, 1175,4, 880,6, 830,4, 784,4, 698,4, 587,2, 698,2, 784,2
+    26 00000CD9 040400700306003E03- <1>
+    26 00000CE2 040010030400BA0204- <1>
+    26 00000CEB 004B020200BA020200- <1>
+    26 00000CF4 10030200            <1>
+    27                              <1>     ; Riff 4: Bb Root (High Lead)
+    28 00000CF8 E9000200E900020097- <1>     dw 233,2, 233,2, 1175,4, 880,6, 830,4, 784,4, 698,4, 587,2, 698,2, 784,2
+    28 00000D01 040400700306003E03- <1>
+    28 00000D0A 040010030400BA0204- <1>
+    28 00000D13 004B020200BA020200- <1>
+    28 00000D1C 10030200            <1>
+    29                              <1> 
+    30                              <1>     ; ===================================================================
+    31                              <1>     ; PART 3: ALTERED TAILS (Descending runs & resolution pause)
+    32                              <1>     ; ===================================================================
+    33                              <1>     ; Riff 1: D Root + Fast Descending Tail
+    34 00000D20 26010200260102004B- <1>     dw 294,2, 294,2, 587,4, 440,6, 415,4, 392,4, 349,4, 440,2, 392,2, 349,2
+    34 00000D29 020400B80106009F01- <1>
+    34 00000D32 0400880104005D0104- <1>
+    34 00000D3B 00B801020088010200- <1>
+    34 00000D44 5D010200            <1>
+    35                              <1>     ; Riff 2: C Root + Fast Descending Tail
+    36 00000D48 06010200060102004B- <1>     dw 262,2, 262,2, 587,4, 440,6, 415,4, 392,4, 349,4, 440,2, 392,2, 349,2
+    36 00000D51 020400B80106009F01- <1>
+    36 00000D5A 0400880104005D0104- <1>
+    36 00000D63 00B801020088010200- <1>
+    36 00000D6C 5D010200            <1>
+    37                              <1>     ; Riff 3: B Root + High Jump Turn
+    38 00000D70 F7000200F70002004B- <1>     dw 247,2, 247,2, 587,4, 440,6, 415,4, 392,4, 349,4, 587,2, 698,2, 784,2
+    38 00000D79 020400B80106009F01- <1>
+    38 00000D82 0400880104005D0104- <1>
+    38 00000D8B 004B020200BA020200- <1>
+    38 00000D94 10030200            <1>
+    39                              <1>     ; Riff 4: Bb Root + Staccato Hold & Rest
+    40 00000D98 E9000200E90002004B- <1>     dw 233,2, 233,2, 587,4, 440,6, 415,4, 392,4, 349,4, 330,4, 0,2
+    40 00000DA1 020400B80106009F01- <1>
+    40 00000DAA 0400880104005D0104- <1>
+    40 00000DB3 004A01040000000200  <1>
+    41                              <1> 
+    42                              <1>     ; Loop marker
+    43 00000DBC FFFF0000            <1>     dw 0FFFFh, 0
+    42                                  %include "src/sfx.asm"          ; SfxBoom / SfxWin
+     1                              <1> ; -------------------------------------------------------------------
+     2                              <1> ; Sound effects, same (frequency, ticks) format as SongTable
+     3                              <1> ; -------------------------------------------------------------------
+     4                              <1> SfxBoom:                        ; mine goes off: crack, then a rumble
+     5 00000DC0 90010100FA000100B4- <1>     dw 400,1, 250,1, 180,1, 140,1, 110,1, 90,1
+     5 00000DC9 0001008C0001006E00- <1>
+     5 00000DD2 01005A000100        <1>
+     6 00000DD8 820001004600010064- <1>     dw 130,1, 70,1, 100,1, 60,1, 85,1, 50,1
+     6 00000DE1 0001003C0001005500- <1>
+     6 00000DEA 010032000100        <1>
+     7 00000DF0 410001002A00010034- <1>     dw 65,1, 42,1, 52,1, 34,1
+     7 00000DF9 00010022000100      <1>
+     8 00000E00 280002001C00020016- <1>     dw 40,2, 28,2, 22,2
+     8 00000E09 000200              <1>
+     9 00000E0C 00000200            <1>     dw 0,2
+    10 00000E10 FFFF0000            <1>     dw 0FFFFh, 0
+    11                              <1> 
+    12                              <1> SfxWin:                         ; board cleared: rising D major fanfare
+    13 00000E14 4B020200E402020070- <1>     dw 587,2, 740,2, 880,2, 1175,3
+    13 00000E1D 03020097040300      <1>
+    14 00000E24 00000100            <1>     dw 0,1
+    15 00000E28 7003010097040100C8- <1>     dw 880,1, 1175,1, 1480,1, 1760,3
+    15 00000E31 050100E0060300      <1>
+    16 00000E38 9704060000000200    <1>     dw 1175,6, 0,2
+    17 00000E40 FFFF0000            <1>     dw 0FFFFh, 0
+    43                                  %include "src/vars.asm"         ; all mutable variables
+     1                              <1> ; --- variables ---
+     2 00000E44 01                  <1> MusicOn     db 1
+     3 00000E45 0000                <1> NoteLeft    dw 0
+     4 00000E47 [E00B]              <1> MusicPtr    dw SongTable
+     5 00000E49 00                  <1> SfxOn       db 0
+     6 00000E4A 0000                <1> SfxPtr      dw 0
+     7 00000E4C 0000                <1> SfxLeft     dw 0
+     8 00000E4E 00                  <1> FillCol     db 0
+     9 00000E4F 00                  <1> BevTL       db 0
+    10 00000E50 00                  <1> BevBR       db 0
+    11 00000E51 00                  <1> BevFace     db 0
+    12 00000E52 0000                <1> BvX         dw 0
+    13 00000E54 0000                <1> BvY         dw 0
+    14 00000E56 0000                <1> BvW         dw 0
+    15 00000E58 0000                <1> BvH         dw 0
+    16 00000E5A 0000                <1> OrgX        dw 0
+    17 00000E5C 0000                <1> OrgY        dw 0
+    18 00000E5E 00                  <1> CellVal     db 0
+    19 00000E5F 00                  <1> CellCol     db 0
+    20 00000E60 0000                <1> GlX         dw 0
+    21 00000E62 0000                <1> GlY         dw 0
+    22 00000E64 00                  <1> GlS         db 0
+    23 00000E65 00                  <1> GlC         db 0
+    24 00000E66 00                  <1> GlBits      db 0
+    25 00000E67 00                  <1> GlRows      db 0
+    26 00000E68 00                  <1> GlCols      db 0
+    27 00000E69 0000                <1> LedVal      dw 0
+    28 00000E6B 0000                <1> LedX        dw 0
+    29 00000E6D 0000                <1> MouseX      dw 0
+    30 00000E6F 0000                <1> MouseY      dw 0
+    31 00000E71 00                  <1> PrevMouse   db 0
+    32 00000E72 00                  <1> GameOver    db 0                ; 0 playing, 1 lost, 2 won
+    33 00000E73 00                  <1> Started     db 0
+    34 00000E74 00                  <1> TimerOn     db 0
+    35 00000E75 0000                <1> Seconds     dw 0
+    36 00000E77 0000                <1> TickAcc     dw 0
+    37 00000E79 0000                <1> LastTick    dw 0
+    38 00000E7B FFFF                <1> HitCell     dw 0FFFFh
+    39 00000E7D 0000                <1> RndSeed     dw 0
+    40                              <1> 
+    41                              <1> ; Board: bit0 mine, bit1 opened, bit2 flagged, bits4-7 neighbour count
+    42 00000E7F 00<rep 51h>         <1> Board       times CELLS db 0

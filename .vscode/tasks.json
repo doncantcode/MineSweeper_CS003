@@ -1,0 +1,22 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "${workspaceFolder}\\build.bat",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build and Run in DOSBox",
+            "type": "shell",
+            "command": "${workspaceFolder}\\build.bat -run",
+            "group": "build",
+            "problemMatcher": []
+        }
+    ]
+}
