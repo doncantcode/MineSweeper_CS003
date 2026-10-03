@@ -44,5 +44,11 @@ Board       times CELLS db 0
 ; Selected game mode
 CurrentMode db 0
 
+; Character kit: 1 tank, 2 mage (3 artificer is locked)
+SelectedClass db 0
+TankShield    db 0                ; blasts left to absorb this level
+MageScans     db 0                ; scans left this session
+ScanArmed     db 0                ; S armed: next click scans a 3x3
+
 ; Text menu state: intro shown only on first boot
 IntroShown  db 0

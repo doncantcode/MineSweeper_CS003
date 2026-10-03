@@ -156,7 +156,10 @@ MainMenu:
     call ModeMenu                 ; AL=0 -> Back, no mode picked
     or al,al
     jz .loop
-    ret                           ; [CurrentMode] set: boot the game
+    call ClassMenu                ; AL=0 -> Back, no class picked
+    or al,al
+    jz .loop
+    ret                           ; mode + class set: boot the game
 .credits:
     call ClearScr
     call show_credits
@@ -217,6 +220,69 @@ ModeMenu:
     xor al,al
     ret
 
+; --- class submenu --------------------------------------------------
+
+; ClassMenu: returns AL=1 with [SelectedClass] set, or AL=0 for Back.
+; [3] Artificer is locked: shows a message and forces re-selection.
+ClassMenu:
+.loop:
+    call ClearScr
+    mov bl,0Eh
+    mov si,txt_classTitle
+    call PrintAttr
+    call Crlf
+    call Crlf
+    mov bl,0Fh
+    mov si,opt_tank
+    call PrintAttr
+    call Crlf
+    mov si,opt_mage
+    call PrintAttr
+    call Crlf
+    mov bl,08h                    ; grey: locked entry
+    mov si,opt_artificer
+    call PrintAttr
+    call Crlf
+    mov bl,0Fh
+    mov si,opt_classBack
+    call PrintAttr
+    call Crlf
+    call Crlf
+    mov bl,07h
+    mov si,msg_pick
+    call PrintAttr
+    call WaitKey
+    cmp al,'1'
+    je .tank
+    cmp al,'2'
+    je .mage
+    cmp al,'3'
+    je .locked
+    cmp al,'4'
+    je .back
+    jmp .loop
+.tank:
+    mov byte [SelectedClass],1
+    jmp .picked
+.mage:
+    mov byte [SelectedClass],2
+    mov byte [MageScans],1        ; one scan per full session
+.picked:
+    mov al,1
+    ret
+.locked:
+    call ClearScr
+    mov bl,0Ch
+    mov si,msg_classLocked
+    call PrintAttr
+    call Crlf
+    call Delay350
+    call Delay350
+    jmp .loop
+.back:
+    xor al,al
+    ret
+
 ; --- exit -----------------------------------------------------------
 
 ExitToDos:
@@ -253,6 +319,13 @@ opt_vanilla:   db ' [1] VANILLA - CLASSIC SWEEP, TIMER COUNTS UP',0
 opt_endless:   db ' [2] ENDLESS - RELAXED SWEEP, NO TIME LIMIT',0
 opt_rapid:     db ' [3] RAPID - 60 SECOND COUNTDOWN!',0
 opt_back:      db ' [4] BACK TO MAIN MENU',0
+
+txt_classTitle: db 'SELECT CLASS',0
+opt_tank:       db ' [1] TANK - ABSORBS ONE BLAST PER LEVEL',0
+opt_mage:       db ' [2] MAGE - PRESS S THEN CLICK: SCAN A 3X3 AREA',0
+opt_artificer:  db ' [3] ARTIFICER (UNAVAILABLE)',0
+opt_classBack:  db ' [4] BACK',0
+msg_classLocked: db 'Class currently unavailable!',0
 
 msg_pick:   db 'SELECT AN OPTION...',0
 msg_exit1:  db 'MINEFIELD SECURED. THANK YOU FOR SWEEPING.',0

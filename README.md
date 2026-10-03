@@ -34,6 +34,7 @@ DOSBox window so the mouse is captured.
 | Click the face   | New game                     |
 | `R`              | New game                     |
 | `M`              | Music and sound on / off     |
+| `S`              | Mage only: arm the 3x3 scanner (next click scans) |
 | `ESC`            | Back to the main menu        |
 
 The first click is always safe: if it lands on a mine, the mine is moved
@@ -54,6 +55,16 @@ The mode is fixed for the session; `R` and the face button start a new
 game in the same mode. `ESC` returns to the main menu to pick another
 mode; only menu option `[3]` leaves to DOS.
 
+## Classes
+
+After the gamemode, a class is picked (shown live in the STATUS panel):
+
+| Class     | Ability                                                                |
+| --------- | ---------------------------------------------------------------------- |
+| Tank      | Absorbs one blast per level: the mine is pinned with a flag instead of game over. Shield refreshes on every new game. |
+| Mage      | Press `S`, then click a tile: every mine in the 3x3 around it is flagged, without stepping on anything. One scan per session. |
+| Artificer | Locked - the menu reports `Class currently unavailable!` and asks again. |
+
 ## Layout
 
 `main.asm` is only an include manifest. It declares the shared constants
@@ -64,7 +75,7 @@ and `%include`s the modules below **in image order**, so the list in
 | --------------------- | ----------------------------------------------- |
 | `src/macros.inc`      | `HIDEM`/`SHOWM`/`BEVEL`/`TXT` macros             |
 | `src/entry.asm`       | Start, main loop, key handling, restart          |
-| `src/menu.asm`       | Text-mode intro, main menu, gamemode submenu      |
+| `src/menu.asm`       | Text-mode intro, main menu, gamemode + class submenus |
 | `src/credits.asm`    | `show_credits` — team credits screen              |
 | `src/palette.asm`     | DAC palette setup (gradient, greys, numbers)     |
 | `src/game.asm`        | Board state, mine placement, flood fill, win check |

@@ -4,6 +4,9 @@
 StrPlay     db 'Playing',0
 StrLost     db 'BOOM!',0
 StrWin      db 'You win!',0
+StrClsTank  db 'TANK',0
+StrClsMage  db 'MAGE',0
+StrClsNone  db '-',0
 
 PalGrays    db 48,48,48, 32,32,32
 PalNums     db 0,0,63,  0,32,0,  63,0,0,  0,0,32

@@ -45,7 +45,7 @@ DrawStatic:
     TXT 13,1,11,'R / Face'
     TXT 14,1,7,'new game'
     TXT 16,1,11,'ESC'
-    TXT 17,1,7,'quit'
+    TXT 17,1,7,'menu'
     TXT 19,1,11,'M'
     TXT 20,1,7,'music'
 
@@ -53,6 +53,30 @@ DrawStatic:
     TXT 6,31,15,'BOARD'
     TXT 7,31,7,'9x9 grid'
     TXT 8,31,7,'10 mines'
+    TXT 10,31,15,'CLASS'
+
+    cmp byte [SelectedClass],1  ; class name under it
+    jne .clsMage
+    mov si,StrClsTank
+    jmp .clsDraw
+.clsMage:
+    cmp byte [SelectedClass],2
+    jne .clsNone
+    mov si,StrClsMage
+    jmp .clsDraw
+.clsNone:
+    mov si,StrClsNone
+.clsDraw:
+    mov dh,11
+    mov dl,31
+    mov bl,14
+    call PrintAt
+
+    cmp byte [SelectedClass],2  ; mage: scan hint
+    jne .noScanHint
+    TXT 12,31,7,'S + click'
+    TXT 13,31,7,'scans 3x3'
+.noScanHint:
     popa
     ret
 

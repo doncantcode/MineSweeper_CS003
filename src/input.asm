@@ -51,6 +51,16 @@ HandleClick:
     jmp .out
 
 .left:
+    cmp byte [ScanArmed],0      ; mage scanner armed?
+    je .plainLeft
+    mov byte [ScanArmed],0
+    cmp byte [MageScans],0
+    je .plainLeft               ; no charges: click opens normally
+    dec byte [MageScans]
+    call ScanArea               ; DH:DL still hold the target cell
+    call Redraw
+    jmp .out
+.plainLeft:
     test byte [Board+si],6      ; flagged or already open
     jnz .out
     cmp byte [Started],0
@@ -69,6 +79,15 @@ HandleClick:
     call Redraw
     jmp .out
 .boom:
+    cmp byte [SelectedClass],1  ; tank with a shield left?
+    jne .realBoom
+    cmp byte [TankShield],0
+    je .realBoom
+    dec byte [TankShield]       ; absorb the blast...
+    or byte [Board+si],4        ; ...and pin the mine: flag stays down
+    call Redraw
+    jmp .out
+.realBoom:
     mov byte [GameOver],1
     mov byte [TimerOn],0
     mov [HitCell],si

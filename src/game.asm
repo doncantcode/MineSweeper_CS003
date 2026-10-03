@@ -49,6 +49,17 @@ NewGame:
     mov word [TickAcc],0
     mov word [HitCell],0FFFFh
 
+    ; character kit: fresh tank shield every level, scanner disarmed.
+    ; MageScans is intentionally NOT reset here - the mage gets one
+    ; scan per full session, granted at class selection.
+    mov byte [ScanArmed],0
+    cmp byte [SelectedClass],1      ; tank
+    jne .noTankKit
+    mov byte [TankShield],1
+    jmp .kitDone
+.noTankKit:
+    mov byte [TankShield],0
+.kitDone:
     popa
     ret
 
@@ -247,5 +258,55 @@ CheckWin:
     mov si,SfxWin               ; board cleared: victory fanfare
     call StartSfx
 .out:
+    popa
+    ret
+
+; -------------------------------------------------------------------
+; ScanArea: mage remote scan.  Marks (flags) every mine in the 3x3
+; around DH:DL (row:col) purely in memory - never runs detonation
+; logic.  Off-board neighbours are skipped, already-flagged mines
+; stay flagged.
+; -------------------------------------------------------------------
+ScanArea:
+    pusha
+    mov al,dh
+    xor ah,ah
+    mov bp,ax                   ; centre row
+    mov al,dl
+    xor ah,ah
+    mov di,ax                   ; centre col
+    mov si,-1                   ; dy
+.dyloop:
+    mov dx,-1                   ; dx
+.dxloop:
+    mov ax,bp
+    add ax,si                   ; r = row + dy
+    mov bx,di
+    add bx,dx                   ; c = col + dx
+    cmp ax,0
+    jl .next
+    cmp ax,GRID_ROWS
+    jge .next
+    cmp bx,0
+    jl .next
+    cmp bx,GRID_COLS
+    jge .next
+    mov cx,ax
+    add cx,cx
+    add cx,cx
+    add cx,cx
+    add cx,ax                   ; cx = 9r
+    add cx,bx                   ; cx = 9r + c
+    mov bx,cx
+    test byte [Board+bx],1      ; a mine?
+    jz .next
+    or byte [Board+bx],4        ; mark it with the flag bit
+.next:
+    inc dx
+    cmp dx,1
+    jle .dxloop
+    inc si
+    cmp si,1
+    jle .dyloop
     popa
     ret

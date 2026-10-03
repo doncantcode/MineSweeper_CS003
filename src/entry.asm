@@ -58,8 +58,17 @@ KeyPressed:
     cmp al,'m'
     je .mute
     cmp al,'r'
-    jne GameLoop
+    jne .chkScan
     call DoRestart
+    jmp GameLoop
+.chkScan:
+    cmp al,'s'                  ; mage: arm / disarm the 3x3 scanner
+    jne GameLoop
+    cmp byte [SelectedClass],2
+    jne GameLoop
+    cmp byte [MageScans],0
+    je GameLoop                 ; no charges left
+    xor byte [ScanArmed],1
     jmp GameLoop
 .mute:
     call ToggleMusic
