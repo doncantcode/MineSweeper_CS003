@@ -9,6 +9,12 @@ UpdateTimer:
     sub ax,[LastTick]
     jz .done
     mov [LastTick],dx
+    cmp byte [KitMsgT],0        ; transient kit message timing
+    je .noKitTick
+    dec byte [KitMsgT]
+    jnz .noKitTick
+    call Redraw                 ; expired: restore the normal status
+.noKitTick:
     push ax
     call MusicStep              ; AX = ticks elapsed
     pop ax

@@ -49,6 +49,8 @@ SelectedClass db 0
 TankShield    db 0                ; blasts left to absorb this level
 MageScans     db 0                ; scans left this session
 ScanArmed     db 0                ; S armed: next click scans a 3x3
+KitMsgN       db 0                ; transient status message id
+KitMsgT       db 0                ; ticks (seconds) left to show it
 
 ; Text menu state: intro shown only on first boot
 IntroShown  db 0

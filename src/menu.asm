@@ -35,6 +35,22 @@ Band:
     popa
     ret
 
+; PaintBG: dim minefield texture (dots and asterisks) on rows CH..DH
+PaintBG:
+    pusha
+    mov bl,19h                  ; bright-blue speckle on blue
+    mov si,bg_pat
+    mov ah,dh                   ; last row
+.row:
+    mov dh,ch
+    xor dl,dl
+    call PrintA
+    inc ch
+    cmp ch,ah
+    jbe .row
+    popa
+    ret
+
 ; WaitKey: AL = keypress, no echo
 WaitKey:
     mov ah,07h
@@ -190,18 +206,16 @@ ShowIntro:
     call ClearScr
 
     ; backdrop: cyan pinstripes around a black stage
-    mov ch,2
+    mov ch,0
     mov dh,2
-    mov bh,30h
-    call Band
+    call PaintBG
     mov ch,3
     mov dh,15
     mov bh,00h
     call Band
     mov ch,16
-    mov dh,16
-    mov bh,30h
-    call Band
+    mov dh,23
+    call PaintBG
 
     ; frame on the stage
     mov bl,0Fh
@@ -329,14 +343,16 @@ MainMenu:
     mov si,msg_dosEd
     call PrintCRow
 
+    mov ch,0
+    mov dh,4
+    call PaintBG
     mov ch,5                    ; stage for the option box
     mov dh,14
     mov bh,00h
     call Band
     mov ch,15
-    mov dh,15
-    mov bh,30h
-    call Band
+    mov dh,23
+    call PaintBG
 
     mov bl,0Fh
     mov si,box_topS
@@ -429,14 +445,16 @@ ModeMenu:
     mov si,txt_modeTitle
     call PrintCRow
 
+    mov ch,0
+    mov dh,4
+    call PaintBG
     mov ch,5
     mov dh,11
     mov bh,00h
     call Band
     mov ch,12
-    mov dh,12
-    mov bh,30h
-    call Band
+    mov dh,23
+    call PaintBG
 
     mov bl,0Fh
     mov si,opt_vanilla
@@ -496,14 +514,16 @@ ClassMenu:
     mov si,txt_classTitle
     call PrintCRow
 
+    mov ch,0
+    mov dh,4
+    call PaintBG
     mov ch,5
     mov dh,11
     mov bh,00h
     call Band
     mov ch,12
-    mov dh,12
-    mov bh,30h
-    call Band
+    mov dh,23
+    call PaintBG
 
     mov bl,0Fh
     mov si,opt_tank
@@ -565,10 +585,16 @@ ClassMenu:
 
 ExitToDos:
     call ClearScr
+    mov ch,0
+    mov dh,10
+    call PaintBG
     mov ch,11
     mov dh,13
     mov bh,00h
     call Band
+    mov ch,14
+    mov dh,23
+    call PaintBG
     mov dh,12
     mov bl,1Ah
     mov si,msg_exit1
@@ -606,6 +632,8 @@ bar_fill:   times 80 db ' '
             db 0
 bar_left:   db ' MINESWEEPER - DOS EDITION',0
 bar_ver:    db 'V1.0 ',0
+
+bg_pat:     db '  .  *   .    .   *   .    .   *   .     .  *   .    .   *  .     .   *  .   .  ',0
 
 msg_dosEd:  db 'D O S   E D I T I O N',0
 msg_mTitle: db 'M I N E S W E E P E R',0

@@ -57,6 +57,8 @@ HandleClick:
     cmp byte [MageScans],0
     je .plainLeft               ; no charges: click opens normally
     dec byte [MageScans]
+    mov byte [KitMsgN],2        ; "SCANNED!" for a moment
+    mov byte [KitMsgT],36
     call ScanArea               ; DH:DL still hold the target cell
     call Redraw
     jmp .out
@@ -85,6 +87,8 @@ HandleClick:
     je .realBoom
     dec byte [TankShield]       ; absorb the blast...
     or byte [Board+si],4        ; ...and pin the mine: flag stays down
+    mov byte [KitMsgN],1        ; "SHIELD!" for a moment
+    mov byte [KitMsgT],36
     call Redraw
     jmp .out
 .realBoom:

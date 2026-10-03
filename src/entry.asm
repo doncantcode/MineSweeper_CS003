@@ -67,8 +67,14 @@ KeyPressed:
     cmp byte [SelectedClass],2
     jne GameLoop
     cmp byte [MageScans],0
-    je GameLoop                 ; no charges left
+    jne .scanOk
+    mov byte [KitMsgN],3        ; no charges: say so briefly
+    mov byte [KitMsgT],36
+    call Redraw
+    jmp GameLoop
+.scanOk:
     xor byte [ScanArmed],1
+    call Redraw                 ; status flips to ARMED! / SCAN RDY
     jmp GameLoop
 .mute:
     call ToggleMusic

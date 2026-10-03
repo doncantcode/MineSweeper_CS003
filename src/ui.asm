@@ -71,12 +71,6 @@ DrawStatic:
     mov dl,31
     mov bl,14
     call PrintAt
-
-    cmp byte [SelectedClass],2  ; mage: scan hint
-    jne .noScanHint
-    TXT 12,31,7,'S + click'
-    TXT 13,31,7,'scans 3x3'
-.noScanHint:
     popa
     ret
 
@@ -86,6 +80,7 @@ Redraw:
     call RenderBoard
     call DrawHeader
     call DrawStatus
+    call DrawKit
     SHOWM
     popa
     ret
@@ -295,6 +290,31 @@ DrawStatus:
     BEVEL 0,244,20,72,16,0
     mov si,StrPlay
     mov bl,10
+    cmp byte [ScanArmed],0      ; scanner armed: persistent prompt
+    je .kitmsg
+    mov si,StrArmed
+    mov bl,14
+    jmp .go
+.kitmsg:
+    cmp byte [KitMsgT],0        ; transient skill message
+    je .gamest
+    mov al,[KitMsgN]
+    cmp al,1
+    jne .m2
+    mov si,StrShield
+    mov bl,11
+    jmp .go
+.m2:
+    cmp al,2
+    jne .m3
+    mov si,StrScanned
+    mov bl,11
+    jmp .go
+.m3:
+    mov si,StrNoScan
+    mov bl,12
+    jmp .go
+.gamest:
     mov al,[GameOver]
     cmp al,1
     jne .n1
@@ -309,5 +329,45 @@ DrawStatus:
     mov dh,3
     mov dl,31
     call PrintAt
+    popa
+    ret
+
+; DrawKit: class kit state line(s) under CLASS (called from Redraw)
+DrawKit:
+    pusha
+    cmp byte [SelectedClass],1
+    je .tank
+    cmp byte [SelectedClass],2
+    je .mage
+    jmp .out
+.tank:
+    mov bl,11
+    mov si,StrShldOn
+    cmp byte [TankShield],0
+    jne .td
+    mov bl,8
+    mov si,StrShldOff
+.td:
+    mov dh,12
+    mov dl,31
+    call PrintAt
+    jmp .out
+.mage:
+    mov bl,11
+    mov si,StrScanOn
+    cmp byte [MageScans],0
+    jne .md
+    mov bl,8
+    mov si,StrScanOff
+.md:
+    mov dh,12
+    mov dl,31
+    call PrintAt
+    mov bl,7
+    mov si,StrScanHint
+    mov dh,13
+    mov dl,31
+    call PrintAt
+.out:
     popa
     ret
