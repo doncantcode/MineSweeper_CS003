@@ -34,9 +34,21 @@ NewGame:
     mov byte [GameOver],0
     mov byte [Started],0
     mov byte [TimerOn],0
-    mov word [Seconds],0
+
+    ; Set timer depending on game mode
+    cmp byte [CurrentMode],2        ; 2 = Rapid
+    jne .normalTimer
+
+    mov word [Seconds],60           ; temporary Rapid time limit
+    jmp .timerSet
+
+.normalTimer:
+    mov word [Seconds],0            ; Vanilla / other modes count upward
+
+.timerSet:
     mov word [TickAcc],0
     mov word [HitCell],0FFFFh
+
     popa
     ret
 

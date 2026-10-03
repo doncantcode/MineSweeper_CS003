@@ -18,6 +18,7 @@ start:
     mov dx,199
     int 33h
 
+    call ShowModeMenu
     call NewGame
     call DrawStatic
     call Redraw

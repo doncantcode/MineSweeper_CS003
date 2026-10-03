@@ -40,3 +40,6 @@ RndSeed     dw 0
 
 ; Board: bit0 mine, bit1 opened, bit2 flagged, bits4-7 neighbour count
 Board       times CELLS db 0
+
+; Selected game mode
+CurrentMode db 0

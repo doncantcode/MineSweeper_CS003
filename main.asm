@@ -27,6 +27,7 @@ START_Y     equ 45
 
 ; --- code ----------------------------------------------------------
 %include "src/entry.asm"        ; start, main loop, keys, restart
+%include "src/menu.asm"         ; game mode selection menu
 %include "src/palette.asm"      ; DAC palette setup
 %include "src/game.asm"         ; board state, mines, reveal, win check
 %include "src/timer.asm"        ; seconds counter on BIOS ticks
