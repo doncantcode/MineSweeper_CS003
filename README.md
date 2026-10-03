@@ -2,7 +2,8 @@
 
 A Minesweeper clone for DOS: NASM, 16-bit `.COM` binary, VGA mode 13h
 (320x200x256), mouse-driven through `INT 33h`, with PC-speaker music and
-sound effects.
+sound effects. A text-mode front end (ASCII intro, main menu, mode
+select, credits) runs in 80x25 before the game starts.
 
 ## Build
 
@@ -27,19 +28,21 @@ DOSBox window so the mouse is captured.
 
 | Input            | Action                       |
 | ---------------- | ---------------------------- |
+| `1`/`2`/`3`/`4`  | Menu selection (no Enter)    |
 | Left click       | Open a tile                  |
 | Right click      | Place / remove a flag        |
 | Click the face   | New game                     |
 | `R`              | New game                     |
 | `M`              | Music and sound on / off     |
-| `ESC`            | Quit                         |
+| `ESC`            | Back to the main menu        |
 
 The first click is always safe: if it lands on a mine, the mine is moved
 to the first free cell.
 
 ## Modes
 
-The game opens with a mode menu — click one to start:
+The game boots into an ASCII intro, then the main menu: `[1] Play`
+opens the gamemode submenu, `[2] Credits`, `[3]` exits to DOS. Modes:
 
 | Mode    | Rules                                                                 |
 | ------- | --------------------------------------------------------------------- |
@@ -48,7 +51,8 @@ The game opens with a mode menu — click one to start:
 | Rapid   | The timer starts at 60 and counts down. Hit 0 and the mines are revealed: instant loss. |
 
 The mode is fixed for the session; `R` and the face button start a new
-game in the same mode. Quit (`ESC`) and relaunch to pick another mode.
+game in the same mode. `ESC` returns to the main menu to pick another
+mode; only menu option `[3]` leaves to DOS.
 
 ## Layout
 
@@ -59,8 +63,9 @@ and `%include`s the modules below **in image order**, so the list in
 | File                  | Contents                                        |
 | --------------------- | ----------------------------------------------- |
 | `src/macros.inc`      | `HIDEM`/`SHOWM`/`BEVEL`/`TXT` macros             |
-| `src/entry.asm`       | Entry point, main loop, key handling, restart    |
-| `src/menu.asm`       | Game mode selection menu (shown at startup)       |
+| `src/entry.asm`       | Start, main loop, key handling, restart          |
+| `src/menu.asm`       | Text-mode intro, main menu, gamemode submenu      |
+| `src/credits.asm`    | `show_credits` — team credits screen              |
 | `src/palette.asm`     | DAC palette setup (gradient, greys, numbers)     |
 | `src/game.asm`        | Board state, mine placement, flood fill, win check |
 | `src/timer.asm`       | Seconds counter (counts up, or down in Rapid)    |

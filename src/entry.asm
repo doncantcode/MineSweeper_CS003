@@ -2,9 +2,12 @@
 ; Program start
 ; -------------------------------------------------------------------
 start:
-    mov ax,0013h                ; 320x200x256
-    int 10h
     cld
+    mov ax,0003h                ; 80x25 text: intro + main menu
+    int 10h
+    call MainMenu               ; sets [CurrentMode]; Exit never returns
+    mov ax,0013h                ; VGA mode 13h for the game
+    int 10h
     call SetPalette
 
     xor ax,ax                   ; reset mouse driver (cursor hidden)
@@ -18,7 +21,6 @@ start:
     mov dx,199
     int 33h
 
-    call ShowModeMenu
     call NewGame
     call DrawStatic
     call Redraw
@@ -67,8 +69,7 @@ ExitGame:
     call SpeakerOff
     mov ax,0003h
     int 10h
-    mov ax,4C00h
-    int 21h
+    jmp start                   ; back to the main menu
 
 DoRestart:
     call NewGame

@@ -26,8 +26,12 @@ START_Y     equ 45
 %include "src/macros.inc"       ; HIDEM/SHOWM/BEVEL/TXT macros
 
 ; --- code ----------------------------------------------------------
+; Boot flow: start (text mode) -> MainMenu (intro, credits, gamemode
+; submenu) -> VGA mode 13h -> game loop.  ESC in game returns to the
+; menu; leaving via menu option [3] is the only DOS exit.
 %include "src/entry.asm"        ; start, main loop, keys, restart
-%include "src/menu.asm"         ; game mode selection menu
+%include "src/menu.asm"         ; text-mode intro, main menu, mode submenu
+%include "src/credits.asm"      ; show_credits: team credits screen
 %include "src/palette.asm"      ; DAC palette setup
 %include "src/game.asm"         ; board state, mines, reveal, win check
 %include "src/timer.asm"        ; seconds counter on BIOS ticks

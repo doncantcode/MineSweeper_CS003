@@ -43,3 +43,6 @@ Board       times CELLS db 0
 
 ; Selected game mode
 CurrentMode db 0
+
+; Text menu state: intro shown only on first boot
+IntroShown  db 0
