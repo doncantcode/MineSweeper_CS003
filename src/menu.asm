@@ -1,17 +1,26 @@
 ; -------------------------------------------------------------------
-; Text-mode front end (80x25): startup intro, main menu and the
-; gamemode submenu.  Keyboard driven through int 21h ah=07h (silent
-; read), so no Enter presses are needed.  Replaces the mode pick
-; previously done by the graphics menu; [CurrentMode] values are
-; unchanged (0 vanilla, 1 endless, 2 rapid).
+; Text-mode front end (80x25): startup intro, main menu, gamemode and
+; class submenus.  Blue screen chrome, boxed layout, silent input via
+; int 21h ah=07h (no Enter needed).  Replaces the mode pick previously
+; done by the graphics menu; [CurrentMode] values are unchanged
+; (0 vanilla, 1 endless, 2 rapid).
 ; -------------------------------------------------------------------
 
 ; --- text helpers ---------------------------------------------------
 
-; ClearScr: fresh 80x25 screen, cursor home
+; ClearScr: fresh 80x25, cleared to blue/white chrome
 ClearScr:
     pusha
     mov ax,0003h
+    int 10h
+    mov ax,0600h                ; scroll whole window = clear with attr
+    mov bh,1Fh                  ; blue background, white text
+    mov cx,0000h
+    mov dx,184Fh
+    int 10h
+    mov ah,02h                  ; cursor home
+    mov bh,0
+    xor dx,dx
     int 10h
     popa
     ret
@@ -22,7 +31,7 @@ WaitKey:
     int 21h
     ret
 
-; PrintStr: DS:SI -> $-terminated string via DOS
+; PrintStr: DS:SI -> $-terminated string via DOS (legacy helper)
 PrintStr:
     pusha
     mov dx,si
@@ -31,19 +40,19 @@ PrintStr:
     popa
     ret
 
-; PrintAttr: DS:SI -> 0-terminated string, BL = colour attribute
+; PrintAttr: write 0-terminated string at the cursor, BL = colour attr
 PrintAttr:
     pusha
 .ch:
     lodsb
     or al,al
     jz .done
-    mov ah,09h                    ; write char + attribute at cursor
+    mov ah,09h                  ; write char + attribute at cursor
     mov bh,0
     mov cx,1
     int 10h
     push ax
-    mov ah,03h                    ; read cursor, then step one column
+    mov ah,03h                  ; read cursor, then step one column
     mov bh,0
     int 10h
     inc dl
@@ -60,14 +69,80 @@ PrintAttr:
     popa
     ret
 
-; Crlf: teletype a line feed + carriage return
-Crlf:
+; PrintA: PrintAttr with explicit placement.  DH=row DL=col BL=attr
+PrintA:
     pusha
-    mov ah,0Eh
-    mov al,10
+    mov ah,02h
+    mov bh,0
     int 10h
-    mov al,13
+    call PrintAttr
+    popa
+    ret
+
+; StrLen: SI -> 0-terminated string, CX = length
+StrLen:
+    push si
+    xor cx,cx
+.l:
+    cmp byte [si],0
+    je .done
+    inc si
+    inc cx
+    jmp .l
+.done:
+    pop si
+    ret
+
+; PrintCRow: centred on row DH, BL = attr, SI -> 0-terminated string
+PrintCRow:
+    pusha
+    call StrLen
+    mov ax,80
+    sub ax,cx
+    shr ax,1
+    mov dl,al
+    mov ah,02h
+    mov bh,0
     int 10h
+    call PrintAttr
+    popa
+    ret
+
+; TypeStr: centred typewriter line on row DH (for the intro status)
+TypeStr:
+    pusha
+    call StrLen
+    mov ax,80
+    sub ax,cx
+    shr ax,1
+    mov dl,al
+    mov ah,02h
+    mov bh,0
+    int 10h
+.ch:
+    lodsb
+    or al,al
+    jz .done
+    mov ah,09h
+    mov bh,0
+    mov cx,1
+    int 10h
+    push ax
+    mov ah,03h                  ; advance the cursor one column
+    mov bh,0
+    int 10h
+    inc dl
+    mov ah,02h
+    int 10h
+    pop ax
+    push cx
+    mov cx,0                    ; ~40 ms per character
+    mov dx,9C40h
+    mov ah,86h
+    int 15h
+    pop cx
+    jmp .ch
+.done:
     popa
     ret
 
@@ -81,37 +156,94 @@ Delay350:
     popa
     ret
 
+; DrawBar: reverse-video status bar along the bottom row
+DrawBar:
+    pusha
+    mov bl,70h
+    mov si,bar_fill
+    mov dh,24
+    xor dl,dl
+    call PrintA
+    mov si,bar_left
+    xor dl,dl
+    call PrintA
+    mov si,bar_ver
+    mov dl,75
+    call PrintA
+    popa
+    ret
+
+; PrintBanner: the 4 art rows starting at row DH, column 2
+PrintBanner:
+    pusha
+    mov dl,2
+    mov bl,1Eh
+    mov si,art_title1
+    call PrintA
+    inc dh
+    mov si,art_title2
+    call PrintA
+    inc dh
+    mov si,art_title3
+    call PrintA
+    inc dh
+    mov si,art_title4
+    call PrintA
+    popa
+    ret
+
 ; --- intro ----------------------------------------------------------
 
 ShowIntro:
     pusha
-    mov bl,0Eh                    ; banner in bright yellow
-    mov si,art_title1
-    call PrintAttr
-    call Crlf
-    mov si,art_title2
-    call PrintAttr
-    call Crlf
-    mov si,art_title3
-    call PrintAttr
-    call Crlf
-    mov si,art_title4
-    call PrintAttr
-    call Crlf
-    call Crlf
-    mov bl,0Bh                    ; tactical status in cyan
+    call ClearScr               ; first boot: paint the blue chrome
+    mov bl,1Fh                  ; frame around the banner
+    mov si,box_top
+    mov dh,3
+    mov dl,1
+    call PrintA
+    mov si,box_bot
+    mov dh,8
+    mov dl,1
+    call PrintA
+    mov si,box_side
+    mov ch,4
+.sides:
+    mov dh,ch
+    mov dl,1
+    call PrintA
+    mov dl,78
+    call PrintA
+    inc ch
+    cmp ch,8
+    jb .sides
+
+    mov dh,4                    ; the banner itself
+    call PrintBanner
+
+    mov dh,10                   ; sub-title
+    mov bl,1Bh
+    mov si,msg_dosEd
+    call PrintCRow
+
+    mov dh,12                   ; tactical status, typed out
+    mov bl,1Bh
     mov si,msg_scan
-    call PrintAttr
-    call Crlf
+    call TypeStr
     call Delay350
-    mov bl,0Ah                    ; mine report in green
+
+    mov dh,13
+    mov bl,1Ah
     mov si,msg_mines
-    call PrintAttr
-    call Crlf
+    call PrintCRow
     call Delay350
-    mov bl,07h
+
+    mov dh,15
+    mov bl,1Fh
     mov si,msg_anykey
-    call PrintAttr
+    call PrintCRow
+
+    call DrawBar
     call WaitKey
     mov byte [IntroShown],1
     popa
@@ -120,30 +252,77 @@ ShowIntro:
 ; --- main menu ------------------------------------------------------
 
 MainMenu:
-    cmp byte [IntroShown],0       ; intro only on first boot
+    cmp byte [IntroShown],0     ; intro only on first boot
     jne .loop
     call ShowIntro
 .loop:
     call ClearScr
-    mov bl,0Eh
-    mov si,txt_menuTitle
-    call PrintAttr
-    call Crlf
-    call Crlf
-    mov bl,0Fh
+    mov dh,2                    ; masthead
+    mov bl,1Eh
+    mov si,msg_mTitle
+    call PrintCRow
+    mov dh,3
+    mov bl,1Bh
+    mov si,msg_dosEd
+    call PrintCRow
+
+    mov bl,1Fh                  ; option box
+    mov si,box_topS
+    mov dh,5
+    mov dl,27
+    call PrintA
+    mov si,box_botS
+    mov dh,11
+    mov dl,27
+    call PrintA
+    mov si,box_side
+    mov ch,6
+.sides:
+    mov dh,ch
+    mov dl,27
+    call PrintA
+    mov dl,54
+    call PrintA
+    inc ch
+    cmp ch,11
+    jb .sides
+
+    mov bl,1Eh                  ; [1]
+    mov si,key1
+    mov dh,7
+    mov dl,31
+    call PrintA
+    mov bl,1Fh
     mov si,opt_play
-    call PrintAttr
-    call Crlf
+    mov dl,34
+    call PrintA
+
+    mov bl,1Eh                  ; [2]
+    mov si,key2
+    mov dh,8
+    mov dl,31
+    call PrintA
+    mov bl,1Fh
     mov si,opt_credits
-    call PrintAttr
-    call Crlf
+    mov dl,34
+    call PrintA
+
+    mov bl,1Eh                  ; [3]
+    mov si,key3
+    mov dh,9
+    mov dl,31
+    call PrintA
+    mov bl,1Fh
     mov si,opt_exit
-    call PrintAttr
-    call Crlf
-    call Crlf
-    mov bl,07h
+    mov dl,34
+    call PrintA
+
+    mov dh,13                   ; prompt
+    mov bl,17h
     mov si,msg_pick
-    call PrintAttr
+    call PrintCRow
+
+    call DrawBar
     call WaitKey
     cmp al,'1'
     je .play
@@ -151,15 +330,15 @@ MainMenu:
     je .credits
     cmp al,'3'
     je .exit
-    jmp .loop                     ; anything else: redraw
+    jmp .loop                   ; anything else: redraw
 .play:
-    call ModeMenu                 ; AL=0 -> Back, no mode picked
+    call ModeMenu               ; AL=0 -> Back, no mode picked
     or al,al
     jz .loop
-    call ClassMenu                ; AL=0 -> Back, no class picked
+    call ClassMenu              ; AL=0 -> Back, no class picked
     or al,al
     jz .loop
-    ret                           ; mode + class set: boot the game
+    ret                         ; mode + class set: boot the game
 .credits:
     call ClearScr
     call show_credits
@@ -173,28 +352,32 @@ MainMenu:
 ModeMenu:
 .loop:
     call ClearScr
-    mov bl,0Eh
+    mov dh,3
+    mov bl,1Eh
     mov si,txt_modeTitle
-    call PrintAttr
-    call Crlf
-    call Crlf
-    mov bl,0Fh
+    call PrintCRow
+
+    mov bl,1Fh
     mov si,opt_vanilla
-    call PrintAttr
-    call Crlf
+    mov dh,5
+    mov dl,16
+    call PrintA
     mov si,opt_endless
-    call PrintAttr
-    call Crlf
+    mov dh,6
+    call PrintA
     mov si,opt_rapid
-    call PrintAttr
-    call Crlf
+    mov dh,7
+    call PrintA
     mov si,opt_back
-    call PrintAttr
-    call Crlf
-    call Crlf
-    mov bl,07h
+    mov dh,8
+    call PrintA
+
+    mov dh,10
+    mov bl,17h
     mov si,msg_pick
-    call PrintAttr
+    call PrintCRow
+
+    call DrawBar
     call WaitKey
     cmp al,'1'
     je .vanilla
@@ -227,30 +410,34 @@ ModeMenu:
 ClassMenu:
 .loop:
     call ClearScr
-    mov bl,0Eh
+    mov dh,3
+    mov bl,1Eh
     mov si,txt_classTitle
-    call PrintAttr
-    call Crlf
-    call Crlf
-    mov bl,0Fh
+    call PrintCRow
+
+    mov bl,1Fh
     mov si,opt_tank
-    call PrintAttr
-    call Crlf
+    mov dh,5
+    mov dl,16
+    call PrintA
     mov si,opt_mage
-    call PrintAttr
-    call Crlf
-    mov bl,08h                    ; grey: locked entry
+    mov dh,6
+    call PrintA
+    mov bl,17h                  ; grey: locked entry
     mov si,opt_artificer
-    call PrintAttr
-    call Crlf
-    mov bl,0Fh
+    mov dh,7
+    call PrintA
+    mov bl,1Fh
     mov si,opt_classBack
-    call PrintAttr
-    call Crlf
-    call Crlf
-    mov bl,07h
+    mov dh,8
+    call PrintA
+
+    mov dh,10
+    mov bl,17h
     mov si,msg_pick
-    call PrintAttr
+    call PrintCRow
+
+    call DrawBar
     call WaitKey
     cmp al,'1'
     je .tank
@@ -266,18 +453,19 @@ ClassMenu:
     jmp .picked
 .mage:
     mov byte [SelectedClass],2
-    mov byte [MageScans],1        ; one scan per full session
+    mov byte [MageScans],1      ; one scan per full session
 .picked:
     mov al,1
     ret
 .locked:
-    call ClearScr
-    mov bl,0Ch
+    mov dh,12
+    mov bl,1Ch
     mov si,msg_classLocked
-    call PrintAttr
-    call Crlf
+    call PrintCRow
     call Delay350
     call Delay350
+    call Delay350
+    call Delay350               ; give the message a moment to read
     jmp .loop
 .back:
     xor al,al
@@ -287,15 +475,15 @@ ClassMenu:
 
 ExitToDos:
     call ClearScr
-    mov bl,0Ah
+    mov dh,11
+    mov bl,1Ah
     mov si,msg_exit1
-    call PrintAttr
-    call Crlf
-    mov bl,07h
+    call PrintCRow
+    mov dh,12
+    mov bl,17h
     mov si,msg_exit2
-    call PrintAttr
-    call Crlf
-    mov ax,4C00h                  ; back to DOS
+    call PrintCRow
+    mov ax,4C00h                ; back to DOS
     int 21h
 
 ; --- strings --------------------------------------------------------
@@ -305,14 +493,22 @@ art_title2: db '|  \/  | | |  | \| |  | __|  / __| \ \ / / | __|  | __|  | _ \ |
 art_title3: db '| |\/| | | |  | |\ |  | __ \ \__ \  \ V /  | __ \ | __ \ |  _/ | __ \ |   /',0
 art_title4: db '|_|  |_| |_|  |_| |_| |___/  |___/   \_/   |___/  |___/  |_|   |___/  |_|_\',0
 
+box_top:    db 0C9h, 76 dup(0CDh), 0BBh, 0
+box_bot:    db 0C8h, 76 dup(0CDh), 0BCh, 0
+box_topS:   db 0C9h, 26 dup(0CDh), 0BBh, 0
+box_botS:   db 0C8h, 26 dup(0CDh), 0BCh, 0
+box_side:   db 0BAh, 0
+
+bar_fill:   times 80 db ' '
+            db 0
+bar_left:   db ' MINESWEEPER - DOS EDITION',0
+bar_ver:    db 'V1.0 ',0
+
+msg_dosEd:  db 'D O S   E D I T I O N',0
+msg_mTitle: db 'M I N E S W E E P E R',0
 msg_scan:   db 'SCANNING GRID FIELD...',0
 msg_mines:  db '10 MINES LOCATED!',0
 msg_anykey: db 'PRESS ANY KEY TO CONTINUE',0
-
-txt_menuTitle: db 'MINESWEEPER - MAIN MENU',0
-opt_play:      db ' [1] PLAY',0
-opt_credits:   db ' [2] CREDITS',0
-opt_exit:      db ' [3] EXIT TO DOS',0
 
 txt_modeTitle: db 'SELECT GAMEMODE',0
 opt_vanilla:   db ' [1] VANILLA - CLASSIC SWEEP, TIMER COUNTS UP',0
@@ -326,6 +522,13 @@ opt_mage:       db ' [2] MAGE - PRESS S THEN CLICK: SCAN A 3X3 AREA',0
 opt_artificer:  db ' [3] ARTIFICER (UNAVAILABLE)',0
 opt_classBack:  db ' [4] BACK',0
 msg_classLocked: db 'Class currently unavailable!',0
+
+key1:       db '[1]',0
+key2:       db '[2]',0
+key3:       db '[3]',0
+opt_play:   db ' PLAY',0
+opt_credits: db ' CREDITS',0
+opt_exit:   db ' EXIT TO DOS',0
 
 msg_pick:   db 'SELECT AN OPTION...',0
 msg_exit1:  db 'MINEFIELD SECURED. THANK YOU FOR SWEEPING.',0
