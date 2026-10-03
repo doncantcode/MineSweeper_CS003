@@ -1,8 +1,8 @@
 ; -------------------------------------------------------------------
 ; Text-mode front end (80x25): startup intro, main menu, gamemode and
-; class submenus.  Blue screen chrome, boxed layout, silent input via
-; int 21h ah=07h (no Enter needed).  Replaces the mode pick previously
-; done by the graphics menu; [CurrentMode] values are unchanged
+; class submenus.  Blue chrome with black stage bands and cyan
+; pinstripes, boxed centred layout, silent input via int 21h ah=07h
+; (no Enter needed).  [CurrentMode] values are unchanged
 ; (0 vanilla, 1 endless, 2 rapid).
 ; -------------------------------------------------------------------
 
@@ -21,6 +21,16 @@ ClearScr:
     mov ah,02h                  ; cursor home
     mov bh,0
     xor dx,dx
+    int 10h
+    popa
+    ret
+
+; Band: fill rows CH..DH with attribute BH (colour stage behind content)
+Band:
+    pusha
+    mov ax,0600h
+    mov cl,0
+    mov dl,79
     int 10h
     popa
     ret
@@ -173,37 +183,34 @@ DrawBar:
     popa
     ret
 
-; PrintBanner: the 4 art rows starting at row DH, column 2
-PrintBanner:
-    pusha
-    mov dl,2
-    mov bl,1Eh
-    mov si,art_title1
-    call PrintA
-    inc dh
-    mov si,art_title2
-    call PrintA
-    inc dh
-    mov si,art_title3
-    call PrintA
-    inc dh
-    mov si,art_title4
-    call PrintA
-    popa
-    ret
-
 ; --- intro ----------------------------------------------------------
 
 ShowIntro:
     pusha
-    call ClearScr               ; first boot: paint the blue chrome
-    mov bl,1Fh                  ; frame around the banner
+    call ClearScr
+
+    ; backdrop: cyan pinstripes around a black stage
+    mov ch,2
+    mov dh,2
+    mov bh,30h
+    call Band
+    mov ch,3
+    mov dh,15
+    mov bh,00h
+    call Band
+    mov ch,16
+    mov dh,16
+    mov bh,30h
+    call Band
+
+    ; frame on the stage
+    mov bl,0Fh
     mov si,box_top
     mov dh,3
     mov dl,1
     call PrintA
     mov si,box_bot
-    mov dh,8
+    mov dh,15
     mov dl,1
     call PrintA
     mov si,box_side
@@ -215,30 +222,86 @@ ShowIntro:
     mov dl,78
     call PrintA
     inc ch
-    cmp ch,8
+    cmp ch,15
     jb .sides
 
-    mov dh,4                    ; the banner itself
-    call PrintBanner
+    ; upper wire, MINE, lower wire, SWEEPER
+    mov bl,07h
+    mov si,wire_l
+    mov dh,5
+    mov dl,34
+    call PrintA
+    mov bl,0Ch
+    mov si,wire_m
+    mov dl,39
+    call PrintA
+    mov bl,07h
+    mov si,wire_r
+    mov dl,40
+    call PrintA
 
-    mov dh,10                   ; sub-title
+    mov bl,0Eh
+    mov si,art_mine1
+    mov dh,6
+    mov dl,28
+    call PrintA
+    inc dh
+    mov si,art_mine2
+    call PrintA
+    inc dh
+    mov si,art_mine3
+    call PrintA
+    inc dh
+    mov si,art_mine4
+    call PrintA
+
+    mov bl,07h
+    mov si,wire_l
+    mov dh,10
+    mov dl,34
+    call PrintA
+    mov bl,0Ch
+    mov si,wire_m
+    mov dl,39
+    call PrintA
+    mov bl,07h
+    mov si,wire_r
+    mov dl,40
+    call PrintA
+
+    mov bl,0Bh
+    mov si,art_swp1
+    mov dh,11
+    mov dl,20
+    call PrintA
+    inc dh
+    mov si,art_swp2
+    call PrintA
+    inc dh
+    mov si,art_swp3
+    call PrintA
+    inc dh
+    mov si,art_swp4
+    call PrintA
+
+    mov dh,17                   ; sub-title
     mov bl,1Bh
     mov si,msg_dosEd
     call PrintCRow
 
-    mov dh,12                   ; tactical status, typed out
+    mov dh,19                   ; tactical status, typed out
     mov bl,1Bh
     mov si,msg_scan
     call TypeStr
     call Delay350
 
-    mov dh,13
+    mov dh,20
     mov bl,1Ah
     mov si,msg_mines
     call PrintCRow
     call Delay350
 
-    mov dh,15
+    mov dh,22
     mov bl,1Fh
     mov si,msg_anykey
     call PrintCRow
@@ -266,17 +329,26 @@ MainMenu:
     mov si,msg_dosEd
     call PrintCRow
 
-    mov bl,1Fh                  ; option box
+    mov ch,5                    ; stage for the option box
+    mov dh,14
+    mov bh,00h
+    call Band
+    mov ch,15
+    mov dh,15
+    mov bh,30h
+    call Band
+
+    mov bl,0Fh
     mov si,box_topS
-    mov dh,5
+    mov dh,7
     mov dl,27
     call PrintA
     mov si,box_botS
-    mov dh,11
+    mov dh,13
     mov dl,27
     call PrintA
     mov si,box_side
-    mov ch,6
+    mov ch,8
 .sides:
     mov dh,ch
     mov dl,27
@@ -284,40 +356,40 @@ MainMenu:
     mov dl,54
     call PrintA
     inc ch
-    cmp ch,11
+    cmp ch,13
     jb .sides
 
     mov bl,1Eh                  ; [1]
     mov si,key1
-    mov dh,7
+    mov dh,9
     mov dl,31
     call PrintA
-    mov bl,1Fh
+    mov bl,0Fh
     mov si,opt_play
     mov dl,34
     call PrintA
 
     mov bl,1Eh                  ; [2]
     mov si,key2
-    mov dh,8
+    mov dh,10
     mov dl,31
     call PrintA
-    mov bl,1Fh
+    mov bl,0Fh
     mov si,opt_credits
     mov dl,34
     call PrintA
 
     mov bl,1Eh                  ; [3]
     mov si,key3
-    mov dh,9
+    mov dh,11
     mov dl,31
     call PrintA
-    mov bl,1Fh
+    mov bl,0Fh
     mov si,opt_exit
     mov dl,34
     call PrintA
 
-    mov dh,13                   ; prompt
+    mov dh,17                   ; prompt
     mov bl,17h
     mov si,msg_pick
     call PrintCRow
@@ -357,22 +429,31 @@ ModeMenu:
     mov si,txt_modeTitle
     call PrintCRow
 
-    mov bl,1Fh
+    mov ch,5
+    mov dh,11
+    mov bh,00h
+    call Band
+    mov ch,12
+    mov dh,12
+    mov bh,30h
+    call Band
+
+    mov bl,0Fh
     mov si,opt_vanilla
-    mov dh,5
+    mov dh,7
     mov dl,16
     call PrintA
     mov si,opt_endless
-    mov dh,6
-    call PrintA
-    mov si,opt_rapid
-    mov dh,7
-    call PrintA
-    mov si,opt_back
     mov dh,8
     call PrintA
-
+    mov si,opt_rapid
+    mov dh,9
+    call PrintA
+    mov si,opt_back
     mov dh,10
+    call PrintA
+
+    mov dh,14
     mov bl,17h
     mov si,msg_pick
     call PrintCRow
@@ -415,24 +496,33 @@ ClassMenu:
     mov si,txt_classTitle
     call PrintCRow
 
-    mov bl,1Fh
+    mov ch,5
+    mov dh,11
+    mov bh,00h
+    call Band
+    mov ch,12
+    mov dh,12
+    mov bh,30h
+    call Band
+
+    mov bl,0Fh
     mov si,opt_tank
-    mov dh,5
+    mov dh,7
     mov dl,16
     call PrintA
     mov si,opt_mage
-    mov dh,6
+    mov dh,8
     call PrintA
     mov bl,17h                  ; grey: locked entry
     mov si,opt_artificer
-    mov dh,7
+    mov dh,9
     call PrintA
-    mov bl,1Fh
+    mov bl,0Fh
     mov si,opt_classBack
-    mov dh,8
+    mov dh,10
     call PrintA
 
-    mov dh,10
+    mov dh,14
     mov bl,17h
     mov si,msg_pick
     call PrintCRow
@@ -458,7 +548,7 @@ ClassMenu:
     mov al,1
     ret
 .locked:
-    mov dh,12
+    mov dh,14
     mov bl,1Ch
     mov si,msg_classLocked
     call PrintCRow
@@ -475,11 +565,15 @@ ClassMenu:
 
 ExitToDos:
     call ClearScr
-    mov dh,11
+    mov ch,11
+    mov dh,13
+    mov bh,00h
+    call Band
+    mov dh,12
     mov bl,1Ah
     mov si,msg_exit1
     call PrintCRow
-    mov dh,12
+    mov dh,13
     mov bl,17h
     mov si,msg_exit2
     call PrintCRow
@@ -488,10 +582,19 @@ ExitToDos:
 
 ; --- strings --------------------------------------------------------
 
-art_title1: db ' __  __   __   _  _    ___    ___  __  __   ___    ___    ___   ___    ___',0
-art_title2: db '|  \/  | | |  | \| |  | __|  / __| \ \ / / | __|  | __|  | _ \ | __|  | _ \',0
-art_title3: db '| |\/| | | |  | |\ |  | __ \ \__ \  \ V /  | __ \ | __ \ |  _/ | __ \ |   /',0
-art_title4: db '|_|  |_| |_|  |_| |_| |___/  |___/   \_/   |___/  |___/  |_|   |___/  |_|_\',0
+art_mine1: db ' __  __  __  _  _   ___',0
+art_mine2: db '|  \/  || | | \| | | __|',0
+art_mine3: db '| |\/| || | | |\ | | __ \',0
+art_mine4: db '|_|  |_||_| |_| |_||___/',0
+
+art_swp1: db ' ___ __  __  ___   ___   ___  ___   ___',0
+art_swp2: db '/ __|\ \ / /| __| | __| | _ \| __| | _ \',0
+art_swp3: db '\__ \ \ V / | __ \| __ \|  _/| __ \|   /',0
+art_swp4: db '|___/  \_/  |___/ |___/ |_|  |___/ |_|_\',0
+
+wire_l:     db '=====',0
+wire_m:     db '@',0
+wire_r:     db '=====',0
 
 box_top:    db 0C9h, 76 dup(0CDh), 0BBh, 0
 box_bot:    db 0C8h, 76 dup(0CDh), 0BCh, 0

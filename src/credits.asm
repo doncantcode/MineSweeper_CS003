@@ -5,6 +5,10 @@
 
 show_credits:
     pusha
+    mov ch,3                    ; black stage behind the block
+    mov dh,12
+    mov bh,00h
+    call Band
     mov dh,1
     mov bl,1Eh
     mov si,msg_credits_title
