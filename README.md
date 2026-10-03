@@ -37,6 +37,19 @@ DOSBox window so the mouse is captured.
 The first click is always safe: if it lands on a mine, the mine is moved
 to the first free cell.
 
+## Modes
+
+The game opens with a mode menu — click one to start:
+
+| Mode    | Rules                                                                 |
+| ------- | --------------------------------------------------------------------- |
+| Vanilla | Classic rules; the timer counts up.                                    |
+| Endless | Reserved — currently plays like Vanilla.                               |
+| Rapid   | The timer starts at 60 and counts down. Hit 0 and the mines are revealed: instant loss. |
+
+The mode is fixed for the session; `R` and the face button start a new
+game in the same mode. Quit (`ESC`) and relaunch to pick another mode.
+
 ## Layout
 
 `main.asm` is only an include manifest. It declares the shared constants
@@ -47,9 +60,10 @@ and `%include`s the modules below **in image order**, so the list in
 | --------------------- | ----------------------------------------------- |
 | `src/macros.inc`      | `HIDEM`/`SHOWM`/`BEVEL`/`TXT` macros             |
 | `src/entry.asm`       | Entry point, main loop, key handling, restart    |
+| `src/menu.asm`       | Game mode selection menu (shown at startup)       |
 | `src/palette.asm`     | DAC palette setup (gradient, greys, numbers)     |
 | `src/game.asm`        | Board state, mine placement, flood fill, win check |
-| `src/timer.asm`       | Seconds counter driven by BIOS ticks             |
+| `src/timer.asm`       | Seconds counter (counts up, or down in Rapid)    |
 | `src/audio.asm`       | Speaker sequencing engine (music + effects)      |
 | `src/pcspeaker.asm`   | PIT channel 2 / port 61h hardware layer          |
 | `src/input.asm`       | Mouse click handling                             |
