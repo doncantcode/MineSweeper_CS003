@@ -6,7 +6,11 @@ StrLost     db 'BOOM!',0
 StrWin      db 'You win!',0
 StrClsTank  db 'TANK',0
 StrClsMage  db 'MAGE',0
+StrClsArtificer db 'ARTIFICER',0
 StrClsNone  db '-',0
+StrRewardTitle db 'LEVEL CLEARED!',0
+StrRewardAmount db '+5 SHRAPNELS!',0
+StrRewardHint db 'R: NEW GAME',0
 StrShield   db 'SHIELD!',0
 StrScanned  db 'SCANNED!',0
 StrNoScan   db 'NO SCANS!',0
@@ -16,6 +20,12 @@ StrShldOff  db 'NO SHIELD',0
 StrScanOn   db 'SCAN RDY',0
 StrScanOff  db 'SCAN USED',0
 StrScanHint db 'S + click',0
+StrBombGet  db 'BOMB +1',0
+StrBombUsed db 'BOMB USED',0
+StrNoBombs  db 'NO BOMBS',0
+StrBombReady db 'BOMB RDY',0
+StrBombs    db 'BOMBS: 0',0
+StrArtItems db 'ITEM LUCK',0
 
 PalGrays    db 48,48,48, 32,32,32
 PalNums     db 0,0,63,  0,32,0,  63,0,0,  0,0,32

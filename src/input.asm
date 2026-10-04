@@ -63,6 +63,8 @@ HandleClick:
     call Redraw
     jmp .out
 .plainLeft:
+    cmp byte [BombArmed],0
+    jne .useBomb
     test byte [Board+si],6      ; flagged or already open
     jnz .out
     cmp byte [Started],0
@@ -77,6 +79,24 @@ HandleClick:
     test byte [Board+si],1
     jnz .boom
     call RevealCell
+    call CheckWin
+    call Redraw
+    jmp .out
+.useBomb:
+    cmp byte [Started],0
+    jne .dropBomb
+    mov byte [Started],1
+    mov byte [TimerOn],1
+    mov word [TickAcc],0
+    test byte [Board+si],1
+    jz .dropBomb
+    call RelocateMine
+.dropBomb:
+    mov byte [BombArmed],0
+    dec byte [BombCount]
+    call BombArea               ; DH:DL remains the chosen centre
+    mov byte [KitMsgN],5
+    mov byte [KitMsgT],36
     call CheckWin
     call Redraw
     jmp .out

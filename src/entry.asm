@@ -5,7 +5,16 @@ start:
     cld
     mov ax,0003h                ; 80x25 text: intro + main menu
     int 10h
+    cmp byte [ProgressLoaded],0
+    jne .progressReady
+    call LoadProgress
+    mov byte [ProgressLoaded],1
+.progressReady:
     call MainMenu               ; sets [CurrentMode]; Exit never returns
+    cmp byte [SelectedClass],2  ; grant the mage's session scan for this run
+    jne .noMageScan
+    mov byte [MageScans],1
+.noMageScan:
     mov ax,0013h                ; VGA mode 13h for the game
     int 10h
     call SetPalette
@@ -58,8 +67,24 @@ KeyPressed:
     cmp al,'m'
     je .mute
     cmp al,'r'
-    jne .chkScan
+    jne .chkBomb
     call DoRestart
+    jmp GameLoop
+.chkBomb:
+    cmp al,'b'                  ; arm a collected bomb for the next tile click
+    jne .chkScan
+    cmp byte [GameOver],0
+    jne GameLoop
+    cmp byte [BombCount],0
+    jne .bombReady
+    mov byte [KitMsgN],6
+    mov byte [KitMsgT],36
+    call Redraw
+    jmp GameLoop
+.bombReady:
+    xor byte [BombArmed],1
+    mov byte [ScanArmed],0
+    call Redraw
     jmp GameLoop
 .chkScan:
     cmp al,'s'                  ; mage: arm / disarm the 3x3 scanner
@@ -73,6 +98,7 @@ KeyPressed:
     call Redraw
     jmp GameLoop
 .scanOk:
+    mov byte [BombArmed],0
     xor byte [ScanArmed],1
     call Redraw                 ; status flips to ARMED! / SCAN RDY
     jmp GameLoop

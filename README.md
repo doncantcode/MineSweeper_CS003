@@ -2,8 +2,8 @@
 
 A Minesweeper clone for DOS: NASM, 16-bit `.COM` binary, VGA mode 13h
 (320x200x256), mouse-driven through `INT 33h`, with PC-speaker music and
-sound effects. A text-mode front end (ASCII intro, main menu, mode
-select, credits) runs in 80x25 before the game starts.
+sound effects. A text-mode front end (ASCII intro, main menu, mode selection, shop, and
+credits) runs in 80x25 before the game starts.
 
 ## Build
 
@@ -35,6 +35,7 @@ DOSBox window so the mouse is captured.
 | `R`              | New game                     |
 | `M`              | Music and sound on / off     |
 | `S`              | Mage only: arm the 3x3 scanner (next click scans) |
+| `B`, then left click | Use a bomb pickup on the selected tile's 3x3 area |
 | `ESC`            | Back to the main menu        |
 
 The first click is always safe: if it lands on a mine, the mine is moved
@@ -43,7 +44,8 @@ to the first free cell.
 ## Modes
 
 The game boots into an ASCII intro, then the main menu: `[1] Play`
-opens the gamemode submenu, `[2] Credits`, `[3]` exits to DOS. Modes:
+opens the gamemode submenu, `[2] Shop`, `[3] Credits`, and `[4]` exits
+to DOS. The shop is where you buy and equip classes. Modes:
 
 | Mode    | Rules                                                                 |
 | ------- | --------------------------------------------------------------------- |
@@ -53,17 +55,30 @@ opens the gamemode submenu, `[2] Credits`, `[3]` exits to DOS. Modes:
 
 The mode is fixed for the session; `R` and the face button start a new
 game in the same mode. `ESC` returns to the main menu to pick another
-mode; only menu option `[3]` leaves to DOS.
+mode or visit the shop; only menu option `[4]` leaves to DOS.
 
-## Classes
+## Shrapnels and classes
 
-After the gamemode, a class is picked (shown live in the STATUS panel):
+Every completed board awards **5 Shrapnels** and displays a reward
+popup. Currency, class ownership, and the equipped class are saved in
+`MINESW.SAV` in the DOS working directory. The shop prices are:
 
-| Class     | Ability                                                                |
-| --------- | ---------------------------------------------------------------------- |
-| Tank      | Absorbs one blast per level: the mine is pinned with a flag instead of game over. Shield refreshes on every new game. |
-| Mage      | Press `S`, then click a tile: every mine in the 3x3 around it is flagged, without stepping on anything. One scan per session. |
-| Artificer | Locked - the menu reports `Class currently unavailable!` and asks again. |
+| Class     | Price | Ability |
+| --------- | ----- | ------- |
+| Tank      | 10 Shrapnels | Absorbs one blast per level: the mine is pinned with a flag instead of game over. |
+| Mage      | 15 Shrapnels | Press `S`, then click a tile: every mine in the 3x3 around it is flagged, without stepping on anything. One scan per game. |
+| Artificer | 20 Shrapnels | Has a 75% chance of three item tiles per board; other classes have a 50% chance. |
+
+Each board has two or three randomly placed safe item tiles. Clearing one
+grants a bomb, shared by all classes. Press `B`, then left-click a tile to
+reveal safe cells in the selected 3x3 area; mines remain covered and are
+not detonated. Artificer has a higher chance of finding the third item
+tile.
+
+Players start with no class equipped and can play as a regular sweeper
+while earning currency. Owned classes can be equipped from the
+main-menu shop and remain equipped across launches. The menu shows a
+warning if the save cannot be read or written.
 
 ## Layout
 
@@ -75,7 +90,8 @@ and `%include`s the modules below **in image order**, so the list in
 | --------------------- | ----------------------------------------------- |
 | `src/macros.inc`      | `HIDEM`/`SHOWM`/`BEVEL`/`TXT` macros             |
 | `src/entry.asm`       | Start, main loop, key handling, restart          |
-| `src/menu.asm`       | Text-mode intro, main menu, gamemode + class submenus |
+| `src/menu.asm`       | Text-mode intro, main menu, gamemode + shop menus |
+| `src/progress.asm`   | Shrapnel rewards, class ownership, `MINESW.SAV` persistence |
 | `src/credits.asm`    | `show_credits` — team credits screen              |
 | `src/palette.asm`     | DAC palette setup (gradient, greys, numbers)     |
 | `src/game.asm`        | Board state, mine placement, flood fill, win check |

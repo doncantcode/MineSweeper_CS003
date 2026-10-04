@@ -38,17 +38,31 @@ LastTick    dw 0
 HitCell     dw 0FFFFh
 RndSeed     dw 0
 
-; Board: bit0 mine, bit1 opened, bit2 flagged, bits4-7 neighbour count
+; Board: bit0 mine, bit1 opened, bit2 flagged, bit3 hidden item,
+;        bits4-7 neighbour count
 Board       times CELLS db 0
+ItemTilesLeft db 0
 
 ; Selected game mode
 CurrentMode db 0
 
-; Character kit: 1 tank, 2 mage (3 artificer is locked)
+; Permanent progression
+Shrapnels    dw 0
+OwnedClasses db 0                ; bits 0-2: Tank, Mage, Artificer
+ProgressError db 0               ; save/load failure shown in menus
+ProgressLoaded db 0
+SaveHandle   dw 0
+LoadValid    db 0
+SaveBuffer   times SAVE_SIZE db 0
+SaveFile     db 'MINESW.SAV',0
+
+; Character kit: 1 tank, 2 mage, 3 artificer
 SelectedClass db 0
 TankShield    db 0                ; blasts left to absorb this level
 MageScans     db 0                ; scans left this session
 ScanArmed     db 0                ; S armed: next click scans a 3x3
+BombCount     db 0                ; picked-up bombs available this board
+BombArmed     db 0                ; B armed: next click drops a 3x3 bomb
 KitMsgN       db 0                ; transient status message id
 KitMsgT       db 0                ; ticks (seconds) left to show it
 

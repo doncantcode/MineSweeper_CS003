@@ -10,6 +10,9 @@ NewGame:
     mov cx,CELLS
     xor al,al
     rep stosb
+    mov byte [BombCount],0
+    mov byte [BombArmed],0
+    mov byte [KitMsgT],0
 
     mov ah,00h
     int 1Ah
@@ -29,6 +32,7 @@ NewGame:
     cmp bl,TOTAL_MINES
     jb .place
 
+    call PlaceItems
     call ComputeNumbers
 
     mov byte [GameOver],0
@@ -71,6 +75,37 @@ GetRandom:
     add ax,13849
     mov [RndSeed],ax
     pop dx
+    ret
+
+; Every board has two item tiles and a random chance for a third.
+; Non-Artificers get the third 50% of the time; Artificers get it 75%.
+PlaceItems:
+    pusha
+    mov byte [ItemTilesLeft],2
+    call GetRandom
+    mov al,[RndSeed+1]
+    cmp byte [SelectedClass],3
+    je .artificerChance
+    test al,1
+    jz .place
+    jmp .addThird
+.artificerChance:
+    and al,3
+    jz .place
+.addThird:
+    inc byte [ItemTilesLeft]
+.place:
+    call GetRandom
+    xor dx,dx
+    mov cx,CELLS
+    div cx
+    mov si,dx
+    test byte [Board+si],1+ITEM_BIT
+    jnz .place
+    or byte [Board+si],ITEM_BIT
+    dec byte [ItemTilesLeft]
+    jnz .place
+    popa
     ret
 
 ; BH=row BL=col -> SI = index   (AX preserved)
@@ -158,7 +193,7 @@ RelocateMine:
     pusha
     xor bx,bx
 .find:
-    test byte [Board+bx],1
+    test byte [Board+bx],1+ITEM_BIT
     jz .found
     inc bx
     jmp .find
@@ -176,6 +211,7 @@ RevealCell:
     test byte [Board+si],6      ; opened or flagged
     jnz .done
     or byte [Board+si],2
+    call CollectItem
     mov al,[Board+si]
     and al,0F0h
     jnz .done                   ; has neighbour mines -> stop
@@ -214,6 +250,72 @@ RevealCell:
     popa
     ret
 
+; SI = opened cell. Bit 3 marks an uncollected bomb pickup.
+CollectItem:
+    pusha
+    test byte [Board+si],ITEM_BIT
+    jz .done
+    and byte [Board+si],0F7h
+    cmp byte [BombCount],0FFh
+    je .done
+    inc byte [BombCount]
+    mov byte [KitMsgN],4
+    mov byte [KitMsgT],36
+.done:
+    popa
+    ret
+
+; Reveal only safe cells in the 3x3 centred on DH:DL; never flood-fill.
+; Mines are left covered, and wrongly flagged safe cells are unflagged.
+BombArea:
+    pusha
+    mov al,dh
+    xor ah,ah
+    mov bp,ax
+    mov al,dl
+    xor ah,ah
+    mov di,ax
+    mov si,-1
+.dyloop:
+    mov dx,-1
+.dxloop:
+    mov ax,bp
+    add ax,si
+    mov bx,di
+    add bx,dx
+    cmp ax,0
+    jl .next
+    cmp ax,GRID_ROWS
+    jge .next
+    cmp bx,0
+    jl .next
+    cmp bx,GRID_COLS
+    jge .next
+    mov cx,ax
+    shl cx,1
+    shl cx,1
+    shl cx,1
+    add cx,ax
+    add cx,bx
+    mov bx,cx
+    test byte [Board+bx],1
+    jnz .next
+    and byte [Board+bx],0FBh
+    or byte [Board+bx],2
+    push si
+    mov si,bx
+    call CollectItem
+    pop si
+.next:
+    inc dx
+    cmp dx,1
+    jle .dxloop
+    inc si
+    cmp si,1
+    jle .dyloop
+    popa
+    ret
+
 RevealMines:                    ; show all un-flagged mines
     pusha
     xor si,si
@@ -233,6 +335,8 @@ RevealMines:                    ; show all un-flagged mines
 
 CheckWin:
     pusha
+    cmp byte [GameOver],0
+    jne .out
     xor si,si
 .l:
     mov al,[Board+si]
@@ -246,6 +350,16 @@ CheckWin:
     jb .l
     mov byte [GameOver],2       ; won
     mov byte [TimerOn],0
+    mov ax,[Shrapnels]
+    cmp ax,0FFFFh-WIN_REWARD
+    jae .maxShrapnels
+    add ax,WIN_REWARD
+    jmp .storeShrapnels
+.maxShrapnels:
+    mov ax,0FFFFh
+.storeShrapnels:
+    mov [Shrapnels],ax
+    call SaveProgress
     xor si,si
 .f:
     test byte [Board+si],1      ; flag every mine

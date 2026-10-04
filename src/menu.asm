@@ -3,7 +3,7 @@
 ;   * big block-letter MINESWEEPER logo, ice-white to steel-blue + shadow
 ;   * dimmed minefield backdrop so menu details stand out
 ;   * steel-blue pinstripes framing the black masthead / stage
-;   * one data-driven menu engine (RunMenu) used by main/mode/class
+;   * one data-driven menu engine (RunMenu) used by main/mode/shop
 ;   * arrow keys / W,S + Enter, number hotkeys, Esc = back
 ;   * highlight bar, per-item description line, locked-item styling
 ;   * everything drawn straight into video RAM (B800h): no flicker
@@ -423,6 +423,38 @@ DrawBar:
     popa
     ret
 
+; FormatWallet: update the five decimal digits in wallet_line.
+FormatWallet:
+    pusha
+    mov ax,[Shrapnels]
+    mov bx,10000
+    xor dx,dx
+    div bx
+    add al,'0'
+    mov [wallet_line+11],al
+    mov ax,dx
+    mov bx,1000
+    xor dx,dx
+    div bx
+    add al,'0'
+    mov [wallet_line+12],al
+    mov ax,dx
+    mov bx,100
+    xor dx,dx
+    div bx
+    add al,'0'
+    mov [wallet_line+13],al
+    mov ax,dx
+    mov bx,10
+    xor dx,dx
+    div bx
+    add al,'0'
+    mov [wallet_line+14],al
+    add dl,'0'
+    mov [wallet_line+15],dl
+    popa
+    ret
+
 ; --- menu engine ----------------------------------------------------
 ;
 ; Descriptor:   dw title, crumb, hint
@@ -669,6 +701,25 @@ MenuDraw:
     cmp al,[m_cnt]
     jb .it
     call DrawDesc
+    cmp word [m_desc],menu_shop
+    jne .noWallet
+    call FormatWallet
+    mov dh,19
+    mov bl,0Eh
+    mov si,wallet_line
+    call PrintCRow
+.noWallet:
+    cmp byte [ProgressError],0
+    je .done
+    mov dh,19
+    cmp word [m_desc],menu_shop
+    jne .errorRow
+    mov dh,20
+.errorRow:
+    mov bl,0Ch
+    mov si,shop_saveError
+    call PrintCRow
+.done:
     popa
     ret
 
@@ -887,24 +938,128 @@ MainMenu:
     call RunMenu
     cmp al,0FFh                 ; Esc on the main menu: ignore
     je .loop
+    cmp al,0
+    je .play
     cmp al,1
-    je .credits
+    je .shop
     cmp al,2
+    je .credits
+    cmp al,3
     je .exit
 .play:
     call ModeMenu               ; AL=0 -> Back to main menu
     or al,al
     jz .loop
-    call ClassMenu              ; AL=0 -> Back to gamemode
-    or al,al
-    jz .play
-    ret                         ; mode + class set: boot the game
+    ret                         ; launch with the equipped class
+.shop:
+    call ShopMenu
+    jmp .loop
 .credits:
     call ClearScr
     call show_credits
     jmp .loop
 .exit:
     call ExitToDos
+
+; ShopMenu: buy classes with permanent Shrapnels or equip owned classes.
+ShopMenu:
+    mov al,[SelectedClass]
+    or al,al
+    jz .loop
+    dec al
+.loop:
+    call UpdateShopItems
+    mov si,menu_shop
+    call RunMenu
+    cmp al,3
+    jae .back
+    cmp al,0
+    je .tank
+    cmp al,1
+    je .mage
+    jmp .artificer
+.tank:
+    test byte [OwnedClasses],1
+    jnz .equipTank
+    sub word [Shrapnels],TANK_PRICE
+    or byte [OwnedClasses],1
+.equipTank:
+    mov byte [SelectedClass],1
+    jmp .save
+.mage:
+    test byte [OwnedClasses],2
+    jnz .equipMage
+    sub word [Shrapnels],MAGE_PRICE
+    or byte [OwnedClasses],2
+.equipMage:
+    mov byte [SelectedClass],2
+    jmp .save
+.artificer:
+    test byte [OwnedClasses],4
+    jnz .equipArtificer
+    sub word [Shrapnels],ART_PRICE
+    or byte [OwnedClasses],4
+.equipArtificer:
+    mov byte [SelectedClass],3
+.save:
+    call SaveProgress
+    mov al,[SelectedClass]
+    dec al
+    jmp .loop
+.back:
+    ret
+
+; Update a shop entry. Inputs: DI=item, BL=ownership bit, DL=class ID,
+; CX=price, SI=buy description, BP=equipped description.
+UpdateShopItem:
+    push ax
+    test byte [OwnedClasses],bl
+    jz .unowned
+    cmp byte [SelectedClass],dl
+    jne .owned
+    mov word [di+2],bp
+    mov byte [di+4],0
+    jmp .done
+.owned:
+    mov word [di+2],ds_shopOwned
+    mov byte [di+4],0
+    jmp .done
+.unowned:
+    cmp word [Shrapnels],cx
+    jb .insufficient
+    mov word [di+2],si
+    mov byte [di+4],0
+    jmp .done
+.insufficient:
+    mov word [di+2],ds_shopNeed
+    mov byte [di+4],1
+.done:
+    pop ax
+    ret
+
+UpdateShopItems:
+    mov di,shop_tank_entry
+    mov bl,1
+    mov dl,1
+    mov cx,TANK_PRICE
+    mov si,ds_shopTankBuy
+    mov bp,ds_shopTankEquipped
+    call UpdateShopItem
+    mov di,shop_mage_entry
+    mov bl,2
+    mov dl,2
+    mov cx,MAGE_PRICE
+    mov si,ds_shopMageBuy
+    mov bp,ds_shopMageEquipped
+    call UpdateShopItem
+    mov di,shop_artificer_entry
+    mov bl,4
+    mov dl,3
+    mov cx,ART_PRICE
+    mov si,ds_shopArtBuy
+    mov bp,ds_shopArtEquipped
+    call UpdateShopItem
+    ret
 
 ; ModeMenu: AL=1 with [CurrentMode] set, or AL=0 for Back
 ModeMenu:
@@ -922,32 +1077,6 @@ ModeMenu:
     ret
 .back:
     xor al,al
-    ret
-
-; ClassMenu: AL=1 with [SelectedClass] set, or AL=0 for Back
-ClassMenu:
-    mov al,[SelectedClass]
-    dec al
-    cmp al,2
-    jb .go
-    xor al,al
-.go:
-    mov si,menu_class
-    call RunMenu
-    cmp al,0
-    je .tank
-    cmp al,1
-    je .mage
-    xor al,al                   ; BACK / Esc  (ARTIFICER can't be accepted)
-    ret
-.tank:
-    mov byte [SelectedClass],1
-    mov al,1
-    ret
-.mage:
-    mov byte [SelectedClass],2
-    mov byte [MageScans],1      ; one scan per full session
-    mov al,1
     ret
 
 ; --- exit -----------------------------------------------------------
@@ -991,8 +1120,10 @@ ExitToDos:
 
 menu_main:
     dw ttl_main, crm_main, hint_main
-    db 3
+    db 4
     dw it_play,    ds_play
+    db 0
+    dw it_shop,    ds_shop
     db 0
     dw it_credits, ds_credits
     db 0
@@ -1011,16 +1142,19 @@ menu_mode:
     dw it_back,    ds_modeBack
     db 0
 
-menu_class:
-    dw ttl_class, crm_class, hint_sub
+menu_shop:
+    dw ttl_shop, crm_shop, hint_sub
     db 4
-    dw it_tank,      ds_tank
+shop_tank_entry:
+    dw it_tank,      ds_shopTankBuy
     db 0
-    dw it_mage,      ds_mage
+shop_mage_entry:
+    dw it_mage,      ds_shopMageBuy
     db 0
-    dw it_artificer, ds_artificer
-    db 1                        ; locked
-    dw it_back,      ds_classBack
+shop_artificer_entry:
+    dw it_artificer, ds_shopArtBuy
+    db 0
+    dw it_shopBack,  ds_shopBack
     db 0
 
 ; engine state
@@ -1079,7 +1213,7 @@ bar_fill:   times 80 db ' '
 bar_left:   db ' MINESWEEPER - DOS EDITION',0
 bar_ver:    db 'V1.0 ',0
 
-hint_main:  db ' ',18h,19h,' MOVE   ENTER SELECT   1-3 QUICK PICK',0
+hint_main:  db ' ',18h,19h,' MOVE   ENTER SELECT   1-4 QUICK PICK',0
 hint_sub:   db ' ',18h,19h,' MOVE   ENTER SELECT   ESC BACK   1-4 QUICK PICK',0
 
 str_marker: db 10h,0
@@ -1096,15 +1230,17 @@ msg_anykey: db 'PRESS ANY KEY TO CONTINUE',0
 
 ttl_main:   db 'MAIN MENU',0
 ttl_mode:   db 'SELECT GAMEMODE',0
-ttl_class:  db 'SELECT CLASS',0
+ttl_shop:   db 'SHRAPNEL SHOP',0
 crm_main:   db ' MAIN MENU ',0
 crm_mode:   db ' MAIN MENU > PLAY > GAMEMODE ',0
-crm_class:  db ' MAIN MENU > PLAY > GAMEMODE > CLASS ',0
+crm_shop:   db ' MAIN MENU > SHOP ',0
 
 it_play:    db 'PLAY',0
+it_shop:    db 'SHOP',0
 it_credits: db 'CREDITS',0
 it_exit:    db 'EXIT TO DOS',0
-ds_play:    db 'Start a game: pick a mode and a class.',0
+ds_play:    db 'Start with the selected mode and equipped class.',0
+ds_shop:    db 'Buy and equip classes with Shrapnels.',0
 ds_credits: db 'See who built this game.',0
 ds_exit:    db 'Quit and return to the DOS prompt.',0
 
@@ -1120,10 +1256,18 @@ ds_modeBack: db 'Return to the main menu.',0
 it_tank:      db 'TANK',0
 it_mage:      db 'MAGE',0
 it_artificer: db 'ARTIFICER',0
-ds_tank:      db 'Absorbs one blast per level.',0
-ds_mage:      db 'Press S then click: scan a 3x3 area.',0
-ds_artificer: db 'Class currently unavailable!',0
-ds_classBack: db 'Return to gamemode select.',0
+it_shopBack:  db 'BACK',0
+ds_shopTankBuy: db 'Buy: 10 Shrapnels. One blast shield per board.',0
+ds_shopMageBuy: db 'Buy: 15 Shrapnels. Press S to scan a 3x3 area.',0
+ds_shopArtBuy: db 'Buy: 20 Shrapnels. More item tiles per board.',0
+ds_shopTankEquipped: db 'Equipped: absorbs one blast per board.',0
+ds_shopMageEquipped: db 'Equipped: press S for one 3x3 scan per game.',0
+ds_shopArtEquipped: db 'Equipped: more likely to find a third item.',0
+ds_shopOwned: db 'Owned. Select to equip this class.',0
+ds_shopNeed: db 'Not enough Shrapnels. Clear boards for +5.',0
+ds_shopBack: db 'Return to the main menu.',0
+shop_saveError: db 'PROGRESS FILE ERROR',0
+wallet_line: db 'SHRAPNELS: 00000',0
 
 msg_exit0:  db 'M I N E S W E E P E R',0
 msg_exit1:  db 'MINEFIELD SECURED. THANK YOU FOR SWEEPING.',0

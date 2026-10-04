@@ -7,6 +7,7 @@
 ;
 ;  Left click  : open tile          Right click : place / remove flag
 ;  Click face  : new game           R : new game        ESC : quit
+;  B + click   : use a collected 3x3 bomb
 ;  M           : music on/off (PC speaker)
 ;
 ;  This file is only the include manifest.  The code lives in src/,
@@ -22,15 +23,22 @@ TOTAL_MINES equ 10
 CELLS       equ GRID_COLS*GRID_ROWS
 START_X     equ 88
 START_Y     equ 45
+ITEM_BIT    equ 8
+WIN_REWARD  equ 5
+TANK_PRICE  equ 10
+MAGE_PRICE  equ 15
+ART_PRICE   equ 20
+SAVE_SIZE   equ 8
 
 %include "src/macros.inc"       ; HIDEM/SHOWM/BEVEL/TXT macros
 
 ; --- code ----------------------------------------------------------
 ; Boot flow: start (text mode) -> MainMenu (intro, credits, gamemode
-; submenu) -> VGA mode 13h -> game loop.  ESC in game returns to the
-; menu; leaving via menu option [3] is the only DOS exit.
+; and shop) -> VGA mode 13h -> game loop. ESC in game returns to the
+; menu; leaving via menu option [4] is the only DOS exit.
 %include "src/entry.asm"        ; start, main loop, keys, restart
-%include "src/menu.asm"         ; text-mode intro, main menu, mode submenu
+%include "src/menu.asm"         ; text-mode intro, main menu, mode/shop menus
+%include "src/progress.asm"     ; permanent currency, class ownership, save file
 %include "src/credits.asm"      ; show_credits: team credits screen
 %include "src/palette.asm"      ; DAC palette setup
 %include "src/game.asm"         ; board state, mines, reveal, win check

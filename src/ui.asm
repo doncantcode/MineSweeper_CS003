@@ -48,6 +48,8 @@ DrawStatic:
     TXT 17,1,7,'menu'
     TXT 19,1,11,'M'
     TXT 20,1,7,'music'
+    TXT 22,1,11,'B + click'
+    TXT 23,1,7,'drop bomb'
 
     TXT 1,31,15,'STATUS'
     TXT 6,31,15,'BOARD'
@@ -61,14 +63,19 @@ DrawStatic:
     jmp .clsDraw
 .clsMage:
     cmp byte [SelectedClass],2
-    jne .clsNone
+    jne .clsArtificer
     mov si,StrClsMage
+    jmp .clsDraw
+.clsArtificer:
+    cmp byte [SelectedClass],3
+    jne .clsNone
+    mov si,StrClsArtificer
     jmp .clsDraw
 .clsNone:
     mov si,StrClsNone
 .clsDraw:
     mov dh,11
-    mov dl,31
+    mov dl,30
     mov bl,14
     call PrintAt
     popa
@@ -81,6 +88,10 @@ Redraw:
     call DrawHeader
     call DrawStatus
     call DrawKit
+    cmp byte [GameOver],2
+    jne .noReward
+    call DrawRewardPopup
+.noReward:
     SHOWM
     popa
     ret
@@ -285,11 +296,38 @@ DrawFace:
     popa
     ret
 
+DrawRewardPopup:
+    pusha
+    BEVEL 1,86,73,148,54,1
+    mov dh,10
+    mov dl,13
+    mov bl,14
+    mov si,StrRewardTitle
+    call PrintAt
+    mov dh,12
+    mov dl,14
+    mov bl,15
+    mov si,StrRewardAmount
+    call PrintAt
+    mov dh,14
+    mov dl,14
+    mov bl,11
+    mov si,StrRewardHint
+    call PrintAt
+    popa
+    ret
+
 DrawStatus:
     pusha
     BEVEL 0,244,20,72,16,0
     mov si,StrPlay
     mov bl,10
+    cmp byte [BombArmed],0
+    je .scanArmed
+    mov si,StrBombReady
+    mov bl,14
+    jmp .go
+.scanArmed:
     cmp byte [ScanArmed],0      ; scanner armed: persistent prompt
     je .kitmsg
     mov si,StrArmed
@@ -311,7 +349,25 @@ DrawStatus:
     mov bl,11
     jmp .go
 .m3:
+    cmp al,3
+    jne .m4
     mov si,StrNoScan
+    mov bl,12
+    jmp .go
+.m4:
+    cmp al,4
+    jne .m5
+    mov si,StrBombGet
+    mov bl,11
+    jmp .go
+.m5:
+    cmp al,5
+    jne .m6
+    mov si,StrBombUsed
+    mov bl,14
+    jmp .go
+.m6:
+    mov si,StrNoBombs
     mov bl,12
     jmp .go
 .gamest:
@@ -339,7 +395,14 @@ DrawKit:
     je .tank
     cmp byte [SelectedClass],2
     je .mage
-    jmp .out
+    cmp byte [SelectedClass],3
+    jne .bombs
+    mov bl,11
+    mov si,StrArtItems
+    mov dh,12
+    mov dl,31
+    call PrintAt
+    jmp .bombs
 .tank:
     mov bl,11
     mov si,StrShldOn
@@ -351,7 +414,7 @@ DrawKit:
     mov dh,12
     mov dl,31
     call PrintAt
-    jmp .out
+    jmp .bombs
 .mage:
     mov bl,11
     mov si,StrScanOn
@@ -368,6 +431,14 @@ DrawKit:
     mov dh,13
     mov dl,31
     call PrintAt
-.out:
+.bombs:
+    mov al,[BombCount]
+    add al,'0'
+    mov [StrBombs+7],al
+    mov bl,14
+    mov si,StrBombs
+    mov dh,14
+    mov dl,31
+    call PrintAt
     popa
     ret
