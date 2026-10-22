@@ -217,6 +217,7 @@ DrawHeader:
     mov di,190
     call DrawLed
     call DrawFace
+    call DrawEndlessLevel
     popa
     ret
 
@@ -272,6 +273,41 @@ DrawLed:
     pop ax
     mov al,ah
     call DrawGlyph
+    popa
+    ret
+
+DrawEndlessLevel:
+    pusha
+    cmp byte [CurrentMode],1
+    jne .done
+
+    mov ax,[EndlessLevel]
+    cmp ax,999
+    jbe .inRange
+    mov ax,999
+.inRange:
+    xor dx,dx
+    mov bx,100
+    div bx
+    add al,'0'
+    mov [EndlessLevelText+4],al
+
+    mov ax,dx
+    xor dx,dx
+    mov bx,10
+    div bx
+    add al,'0'
+    mov [EndlessLevelText+5],al
+    add dl,'0'
+    mov [EndlessLevelText+6],dl
+
+    mov dh,5
+    mov dl,31
+    mov bl,14
+    mov si,EndlessLevelText
+    call PrintAt
+
+.done:
     popa
     ret
 

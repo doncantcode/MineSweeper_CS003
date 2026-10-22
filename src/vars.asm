@@ -46,6 +46,10 @@ ItemTilesLeft db 0
 ; Selected game mode
 CurrentMode db 0
 
+; Endless mode session state
+EndlessLevel     dw 1
+EndlessLevelText db 'LVL 001',0
+
 ; Permanent progression
 Shrapnels    dw 0
 OwnedClasses db 0                ; bits 0-2: Tank, Mage, Artificer

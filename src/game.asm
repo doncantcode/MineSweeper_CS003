@@ -371,6 +371,15 @@ CheckWin:
     jb .f
     mov si,SfxWin               ; board cleared: victory fanfare
     call StartSfx
+
+    ; Endless mode: advance to the next level
+    cmp byte [CurrentMode],1
+    jne .out
+    cmp word [EndlessLevel],0FFFFh
+    jae .newBoard
+    inc word [EndlessLevel]
+.newBoard:
+    call NewGame
 .out:
     popa
     ret

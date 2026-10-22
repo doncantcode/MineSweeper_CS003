@@ -11,6 +11,11 @@ start:
     mov byte [ProgressLoaded],1
 .progressReady:
     call MainMenu               ; sets [CurrentMode]; Exit never returns
+    ; Reset Endless level when starting a new run
+    cmp byte [CurrentMode],1
+    jne .levelReady
+    mov word [EndlessLevel],1
+.levelReady:
     cmp byte [SelectedClass],2  ; grant the mage's session scan for this run
     jne .noMageScan
     mov byte [MageScans],1
@@ -108,11 +113,21 @@ KeyPressed:
 
 ExitGame:
     call SpeakerOff
+    cmp byte [CurrentMode],1
+    jne .leaveGame
+    mov word [EndlessLevel],1
+.leaveGame:
     mov ax,0003h
     int 10h
     jmp start                   ; back to the main menu
 
 DoRestart:
+    cmp byte [CurrentMode],1
+    jne .restartBoard
+    cmp byte [GameOver],0
+    je .restartBoard
+    mov word [EndlessLevel],1
+.restartBoard:
     call NewGame
     call Redraw
     ret
