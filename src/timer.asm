@@ -55,6 +55,7 @@ UpdateTimer:
     mov byte [GameOver],1
     mov byte [TimerOn],0
     mov word [HitCell],0FFFFh
+    mov word [EventPtr],EvTimeUp
 
     call RevealMines
     call Redraw

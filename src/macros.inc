@@ -1,6 +1,17 @@
 ; -------------------------------------------------------------------
-; Macros
+; Macros & Shared Constants
 ; -------------------------------------------------------------------
+MAX_CELLS   equ 600
+SAVE_SIZE   equ 13              ; +1 byte: unlocked Endless level
+WIN_REWARD  equ 5
+ITEM_BIT    equ 8
+POTION_PRICE equ 10
+POTION_MAX  equ 99              ; per-potion carry limit (2-digit HUD fields)
+MAX_LEVEL   equ 10              ; Endless levels on the level select
+TANK_PRICE  equ 0               ; Tank is free (always owned)
+MAGE_PRICE  equ 10
+ART_PRICE   equ 10
+
 %macro HIDEM 0
     mov ax,2
     int 33h

@@ -31,6 +31,17 @@ ClearScr:
     mov bh,0
     xor dx,dx
     int 10h
+    call HideCursor             ; a mode reset brings the cursor back
+    popa
+    ret
+
+; HideCursor: hide the blinking text-mode cursor (menus draw straight
+; to video RAM, so a visible cursor just blinks in the top-left corner)
+HideCursor:
+    pusha
+    mov ah,01h
+    mov cx,2000h
+    int 10h
     popa
     ret
 
@@ -184,24 +195,60 @@ NumRow:
     popa
     ret
 
-; WaitKey: AL = keypress, no echo
+; WaitKey: AL = keypress, no echo (menu music continues playing)
 WaitKey:
-    mov ah,07h
-    int 21h
+    call GetKey
     ret
 
 ; GetKey: AL = key code, AH = 0 normal / 1 extended (arrows etc, AL=scan)
+; Plays menu music concurrently via PlayMenuMusicStep while idle
 GetKey:
-    mov ah,07h
-    int 21h
-    or al,al
-    jnz .norm
-    mov ah,07h
-    int 21h
-    mov ah,1
+.wait:
+    cmp byte [TestMode], 1
+    jne .chk_music
+    mov ah, 01h
+    int 16h
+    jnz .read_key
+    mov al, 1Bh
+    xor ah, ah
     ret
+
+.chk_music:
+    cmp byte [MenuMusicOn], 1
+    jne .no_music
+    call PlayMenuMusicStep
+    jmp .poll
+
+.no_music:
+    call SpeakerOff
+    mov ah, 86h
+    xor cx, cx
+    mov dx, 10000               ; 10ms idle delay
+    int 15h
+
+.poll:
+    mov ah, 01h
+    int 16h
+    jz .wait
+
+.read_key:
+    mov ah, 00h
+    int 16h
+    or al, al
+    jnz .check_e0
+    mov al, ah
+    mov ah, 1
+    ret
+
+.check_e0:
+    cmp al, 0E0h
+    jne .norm
+    mov al, ah
+    mov ah, 1
+    ret
+
 .norm:
-    xor ah,ah
+    xor ah, ah
     ret
 
 ; PrintStr: DS:SI -> $-terminated string via DOS (legacy helper)
@@ -477,6 +524,10 @@ RunMenu:
     mov ah,16                   ; panel row = (24 - (count+8)) / 2
     sub ah,al
     shr ah,1
+    cmp ah,6                    ; never cover the masthead (rows 0-5)
+    jae .rowOk
+    mov ah,6
+.rowOk:
     mov [m_row],ah
     call MenuDraw
 
@@ -496,6 +547,10 @@ RunMenu:
     je .down
     cmp al,'S'
     je .down
+    cmp al,'m'
+    je .toggle_m
+    cmp al,'M'
+    je .toggle_m
     cmp al,'1'                  ; number hotkey: highlight + activate
     jb .key
     sub al,'1'
@@ -539,6 +594,11 @@ RunMenu:
     mov al,[m_cnt]
     dec al
     call MoveTo
+    jmp .key
+.toggle_m:
+    call ToggleMenuMusic
+    call UpdateMenuMusicText
+    call MenuDraw
     jmp .key
 .enter:
     mov al,[m_sel]
@@ -804,140 +864,22 @@ DrawDesc:
     popa
     ret
 
-; --- intro ----------------------------------------------------------
-
-ShowIntro:
-    pusha
-    call ClearScr
-
-    mov ch,0                    ; minefield everywhere ...
-    mov dh,23
-    call PaintBG
-    mov ch,2                    ; ... then a black stage
-    mov dh,15
-    mov bh,00h
-    call Band
-    mov dh,1                    ; rainbow stripes hugging the stage
-    mov al,0DCh
-    call Rainbow
-    mov dh,16
-    mov al,0DFh
-    call Rainbow
-
-    mov bl,03h                  ; cyan frame
-    mov si,box_top
-    mov dh,2
-    mov dl,1
-    call PrintA
-    mov si,box_bot
-    mov dh,15
-    mov dl,1
-    call PrintA
-    mov si,box_side
-    mov ch,3
-.sides:
-    mov dh,ch
-    mov dl,1
-    call PrintA
-    mov dl,78
-    call PrintA
-    inc ch
-    cmp ch,15
-    jb .sides
-
-    mov byte [g_full],0B1h      ; logo shadow: dim shaded blocks, +1/+1
-    mov bl,08h
-    mov dh,5
-    mov dl,8
-    mov si,ttl_r0
-    call PrintG
-    inc dh
-    mov si,ttl_r1
-    call PrintG
-    inc dh
-    mov si,ttl_r2
-    call PrintG
-    inc dh
-    mov si,ttl_r3
-    call PrintG
-    inc dh
-    mov si,ttl_r4
-    call PrintG
-
-    mov byte [g_full],0DBh      ; logo: ice white down to steel blue
-    mov dl,7
-    mov dh,4
-    mov bl,0Fh
-    mov si,ttl_r0
-    call PrintG
-    inc dh
-    mov bl,0Bh
-    mov si,ttl_r1
-    call PrintG
-    inc dh
-    mov si,ttl_r2
-    call PrintG
-    inc dh
-    mov bl,03h
-    mov si,ttl_r3
-    call PrintG
-    inc dh
-    mov bl,09h
-    mov si,ttl_r4
-    call PrintG
-
-    mov dh,11                   ; fuse ornament with a mine in the middle
-    mov bl,07h
-    mov si,orn_fuse
-    call PrintCRow
-    mov bl,0Bh
-    mov si,str_mine
-    mov dl,39
-    call PrintA
-
-    mov dh,12
-    mov bl,0Bh
-    mov si,msg_dosEd
-    call PrintCRow
-    mov dh,13
-    call NumRow
-
-    mov dh,19                   ; tactical status, typed out
-    mov bl,1Bh
-    mov si,msg_scan
-    call TypeStr
-    call Delay350
-
-    mov dh,20
-    mov bl,1Bh
-    mov si,msg_mines
-    call PrintCRow
-    call Delay350
-
-    mov dh,22
-    mov bl,1Fh
-    mov si,msg_anykey
-    call PrintCRow
-
-    mov si,bar_left
-    call DrawBar
-    call WaitKey
-    mov byte [IntroShown],1
-    popa
-    ret
-
 ; --- main menu ------------------------------------------------------
+
+main_sel:   db 0
 
 MainMenu:
     cmp byte [IntroShown],0
     jne .loop
     call ShowIntro
 .loop:
+    call UpdateMenuMusicText
     mov si,menu_main
-    xor al,al
+    mov al,[main_sel]
     call RunMenu
     cmp al,0FFh                 ; Esc on the main menu: ignore
     je .loop
+    mov [main_sel],al
     cmp al,0
     je .play
     cmp al,1
@@ -945,12 +887,24 @@ MainMenu:
     cmp al,2
     je .credits
     cmp al,3
+    je .toggleMusic
+    cmp al,4
     je .exit
+    jmp .loop
+.toggleMusic:
+    call ToggleMenuMusic
+    call UpdateMenuMusicText
+    jmp .loop
 .play:
-    call ModeMenu               ; AL=0 -> Back to main menu
+.classLoop:
+    call ClassMenu              ; AL=1 -> class selected, AL=0 -> Back to main menu
     or al,al
     jz .loop
-    ret                         ; launch with the equipped class
+.modeLoop:
+    call ModeMenu               ; AL=1 -> mode selected, AL=0 -> Back to class menu
+    or al,al
+    jz .classLoop
+    ret                         ; launch with selected class and mode
 .shop:
     call ShopMenu
     jmp .loop
@@ -1061,6 +1015,65 @@ UpdateShopItems:
     call UpdateShopItem
     ret
 
+; ClassMenu: AL=1 with [SelectedClass] set, or AL=0 for Back
+ClassMenu:
+    mov al,[SelectedClass]      ; cursor starts on the currently equipped class (0..3)
+    cmp al,4
+    jb .go
+    xor al,al
+.go:
+    push ax
+    call UpdateClassItems
+    pop ax
+    mov si,menu_class
+    call RunMenu
+    cmp al,4                    ; item 5 (BACK) or Esc (0FFh)
+    jae .back
+    mov [SelectedClass],al      ; 0 none, 1 tank, 2 mage, 3 artificer
+    call SaveProgress
+    mov al,1
+    ret
+.back:
+    xor al,al
+    ret
+
+UpdateClassItems:
+    pusha
+    ; Tank (bit 0)
+    mov di,cls_tank_entry
+    mov si,ds_clsTank
+    mov byte [di+4],0
+    test byte [OwnedClasses],1
+    jnz .tankSet
+    mov si,ds_clsLocked
+    mov byte [di+4],1
+.tankSet:
+    mov [di+2],si
+
+    ; Mage (bit 1)
+    mov di,cls_mage_entry
+    mov si,ds_clsMage
+    mov byte [di+4],0
+    test byte [OwnedClasses],2
+    jnz .mageSet
+    mov si,ds_clsLocked
+    mov byte [di+4],1
+.mageSet:
+    mov [di+2],si
+
+    ; Artificer (bit 2)
+    mov di,cls_artificer_entry
+    mov si,ds_clsArt
+    mov byte [di+4],0
+    test byte [OwnedClasses],4
+    jnz .artSet
+    mov si,ds_clsLocked
+    mov byte [di+4],1
+.artSet:
+    mov [di+2],si
+    popa
+    ret
+
 ; ModeMenu: AL=1 with [CurrentMode] set, or AL=0 for Back
 ModeMenu:
     mov al,[CurrentMode]        ; cursor starts on the last choice
@@ -1073,6 +1086,14 @@ ModeMenu:
     cmp al,3                    ; item 4 (BACK) or Esc (0FFh)
     jae .back
     mov [CurrentMode],al        ; indices match 0/1/2
+    cmp al,1
+    jne .mOk
+    mov byte [CurrentLevel],1
+    mov byte [PotionOracle],0
+    mov byte [PotionRadar],0
+    mov byte [PotionDetector],0
+    mov byte [EndlessState],0
+.mOk:
     mov al,1
     ret
 .back:
@@ -1082,6 +1103,7 @@ ModeMenu:
 ; --- exit -----------------------------------------------------------
 
 ExitToDos:
+    call SpeakerOff
     call ClearScr
     mov ch,0
     mov dh,23
@@ -1113,6 +1135,9 @@ ExitToDos:
     mov bh,0
     mov ah,02h
     int 10h
+    mov ah,01h                  ; give DOS its normal underline cursor back
+    mov cx,0607h
+    int 10h
     mov ax,4C00h
     int 21h
 
@@ -1120,14 +1145,33 @@ ExitToDos:
 
 menu_main:
     dw ttl_main, crm_main, hint_main
-    db 4
+    db 5
     dw it_play,    ds_play
     db 0
     dw it_shop,    ds_shop
     db 0
     dw it_credits, ds_credits
     db 0
+    dw it_music,   ds_music
+    db 0
     dw it_exit,    ds_exit
+    db 0
+
+menu_class:
+    dw ttl_class, crm_class, hint_class
+    db 5
+    dw it_clsNone,   ds_clsNone
+    db 0
+cls_tank_entry:
+    dw it_tank,      ds_clsTank
+    db 0
+cls_mage_entry:
+    dw it_mage,      ds_clsMage
+    db 0
+cls_artificer_entry:
+    dw it_artificer, ds_clsArt
+    db 0
+    dw it_clsBack,   ds_clsBack
     db 0
 
 menu_mode:
@@ -1213,7 +1257,8 @@ bar_fill:   times 80 db ' '
 bar_left:   db ' MINESWEEPER - DOS EDITION',0
 bar_ver:    db 'V1.0 ',0
 
-hint_main:  db ' ',18h,19h,' MOVE   ENTER SELECT   1-4 QUICK PICK',0
+hint_main:  db ' ',18h,19h,' MOVE   ENTER SELECT   1-5 QUICK PICK   M MUSIC',0
+hint_class: db ' ',18h,19h,' MOVE   ENTER SELECT   ESC BACK   1-5 QUICK PICK',0
 hint_sub:   db ' ',18h,19h,' MOVE   ENTER SELECT   ESC BACK   1-4 QUICK PICK',0
 
 str_marker: db 10h,0
@@ -1229,42 +1274,67 @@ msg_mines:  db '10 MINES LOCATED!',0
 msg_anykey: db 'PRESS ANY KEY TO CONTINUE',0
 
 ttl_main:   db 'MAIN MENU',0
+ttl_class:  db 'SELECT CLASS',0
 ttl_mode:   db 'SELECT GAMEMODE',0
-ttl_shop:   db 'SHRAPNEL SHOP',0
+ttl_shop:   db 'HERO SHOP',0
 crm_main:   db ' MAIN MENU ',0
+crm_class:  db ' MAIN MENU > PLAY > CLASS ',0
 crm_mode:   db ' MAIN MENU > PLAY > GAMEMODE ',0
-crm_shop:   db ' MAIN MENU > SHOP ',0
+crm_shop:   db ' MAIN MENU > HERO SHOP ',0
 
 it_play:    db 'PLAY',0
-it_shop:    db 'SHOP',0
+it_shop:    db 'HERO SHOP',0
 it_credits: db 'CREDITS',0
+it_music:   db 'MUSIC: '
+it_music_status: db 'ON ',0
 it_exit:    db 'EXIT TO DOS',0
-ds_play:    db 'Start with the selected mode and equipped class.',0
-ds_shop:    db 'Buy and equip classes with Shrapnels.',0
+ds_play:    db 'Select class and game mode to play.',0
+ds_shop:    db 'Unlock, select and upgrade hero classes.',0
 ds_credits: db 'See who built this game.',0
+ds_music:   db 'Toggle menu music on or off (or press M).',0
 ds_exit:    db 'Quit and return to the DOS prompt.',0
+
+UpdateMenuMusicText:
+    cmp byte [MenuMusicOn], 1
+    je .on
+    mov word [it_music_status], 'OF'
+    mov byte [it_music_status+2], 'F'
+    ret
+.on:
+    mov word [it_music_status], 'ON'
+    mov byte [it_music_status+2], ' '
+    ret
+
+it_clsNone:   db 'NO CLASS',0
+it_clsBack:   db 'BACK',0
+ds_clsNone:   db 'Play classic sweeper with no class perks.',0
+ds_clsTank:   db 'Absorbs one blast per board with a shield.',0
+ds_clsMage:   db 'Press S to scan a 3x3 area (one per game).',0
+ds_clsArt:    db 'Passive: doubles all Shrapnels you earn.',0
+ds_clsLocked: db 'Locked. Buy it in the Hero Shop first.',0
+ds_clsBack:   db 'Return to the main menu.',0
 
 it_vanilla: db 'VANILLA',0
 it_endless: db 'ENDLESS',0
 it_rapid:   db 'RAPID',0
 it_back:    db 'BACK',0
 ds_vanilla: db 'Classic sweep. Timer counts up.',0
-ds_endless: db 'Relaxed sweep. No time limit.',0
+ds_endless: db 'Pick a level; beat it to unlock the next.',0
 ds_rapid:   db 'Beat the 60 second countdown!',0
-ds_modeBack: db 'Return to the main menu.',0
+ds_modeBack: db 'Return to class selection.',0
 
 it_tank:      db 'TANK',0
 it_mage:      db 'MAGE',0
 it_artificer: db 'ARTIFICER',0
 it_shopBack:  db 'BACK',0
-ds_shopTankBuy: db 'Buy: 10 Shrapnels. One blast shield per board.',0
-ds_shopMageBuy: db 'Buy: 15 Shrapnels. Press S to scan a 3x3 area.',0
-ds_shopArtBuy: db 'Buy: 20 Shrapnels. More item tiles per board.',0
+ds_shopTankBuy: db 'Free! Shield absorbs one blast.',0
+ds_shopMageBuy: db 'Buy: 10 Shrapnels. Press S to scan a 3x3.',0
+ds_shopArtBuy: db 'Buy: 10 Shrapnels. Doubles earned Shrapnels.',0
 ds_shopTankEquipped: db 'Equipped: absorbs one blast per board.',0
 ds_shopMageEquipped: db 'Equipped: press S for one 3x3 scan per game.',0
-ds_shopArtEquipped: db 'Equipped: more likely to find a third item.',0
+ds_shopArtEquipped: db 'Equipped: doubles all earned Shrapnels.',0
 ds_shopOwned: db 'Owned. Select to equip this class.',0
-ds_shopNeed: db 'Not enough Shrapnels. Clear boards for +5.',0
+ds_shopNeed: db 'Not enough Shrapnels. Clear boards to earn.',0
 ds_shopBack: db 'Return to the main menu.',0
 shop_saveError: db 'PROGRESS FILE ERROR',0
 wallet_line: db 'SHRAPNELS: 00000',0

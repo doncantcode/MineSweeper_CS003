@@ -106,3 +106,90 @@ ToggleMusic:
     call SpeakerOff
 .r:
     ret
+
+; -------------------------------------------------------------------
+; Main Menu Music Player (PC speaker PIT channel 2, ports 42h/43h/61h)
+; Uses track1 format: pairs of (PIT channel 2 divisor, duration in ms)
+; 0 = rest, 0FFFFh = loop back to start.
+; Steps in 10ms increments via INT 15h, AH=86h so the menu input loop
+; remains completely responsive while playing.
+; -------------------------------------------------------------------
+PlayMenuMusicStep:
+    pusha
+    cmp byte [MenuMusicOn], 1
+    jne .silence
+
+    cmp word [MenuNoteLeft], 0
+    jne .step_delay
+
+.fetch_note:
+    mov si, [MenuMusicPtr]
+    mov bx, [si]
+    cmp bx, 0FFFFh
+    jne .valid_note
+    mov si, track3
+    mov bx, [si]
+.valid_note:
+    mov bp, [si+2]              ; duration ms
+    add si, 4
+    mov [MenuMusicPtr], si
+    mov [MenuNoteLeft], bp
+
+    test bx, bx
+    jz .rest
+    mov al, 0B6h
+    out 43h, al
+    mov ax, bx
+    out 42h, al
+    mov al, ah
+    out 42h, al
+    in al, 61h
+    or al, 3
+    out 61h, al
+    jmp .step_delay
+
+.rest:
+    in al, 61h
+    and al, 0FCh
+    out 61h, al
+
+.step_delay:
+    cmp byte [TestMode], 1
+    je .no_delay
+    mov ah, 86h
+    xor cx, cx
+    mov dx, 10000               ; 10,000 us = 10 ms
+    int 15h
+.no_delay:
+    cmp word [MenuNoteLeft], 10
+    jbe .note_end
+    sub word [MenuNoteLeft], 10
+    jmp .done
+
+.note_end:
+    mov word [MenuNoteLeft], 0
+    jmp .done
+
+.silence:
+    call SpeakerOff
+    mov word [MenuNoteLeft], 0
+
+.done:
+    popa
+    ret
+
+; ToggleMenuMusic: toggles menu music on/off, silences speaker if off
+ToggleMenuMusic:
+    push ax
+    xor byte [MenuMusicOn], 1
+    cmp byte [MenuMusicOn], 1
+    je .turned_on
+    call SpeakerOff
+    mov word [MenuNoteLeft], 0
+    jmp .done
+.turned_on:
+    mov word [MenuMusicPtr], track3
+    mov word [MenuNoteLeft], 0
+.done:
+    pop ax
+    ret

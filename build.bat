@@ -28,11 +28,16 @@ if not defined NASM (
 echo Building main.com with "%NASM%" ...
 "%NASM%" -f bin main.asm -o main.com -l main.lst
 if errorlevel 1 (
-    echo BUILD FAILED
+    echo BUILD FAILED: main.com
+    exit /b 1
+)
+"%NASM%" -f bin intro.asm -o intro.com
+if errorlevel 1 (
+    echo BUILD FAILED: intro.com
     exit /b 1
 )
 
-echo Build OK: main.com
+echo Build OK: main.com, intro.com
 if /i "%~1"=="-run" (
     where dosbox >nul 2>nul || (
         echo ERROR: dosbox not found on PATH

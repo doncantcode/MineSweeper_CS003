@@ -64,13 +64,13 @@ show_credits:
 
 msg_credits_title:  db 'C R E D I T S',0
 msg_credits_frame:  db '============================================',0
-msg_credits_head:   db '  M I N E S W E E P E R  -  DOS EDITION    ',0
-msg_credits_course: db '  CS 003: COMPUTER ARCH & ORGANIZATION     ',0
+msg_credits_head:   db '  M I N E S W E E P E R  -  DOS EDITION     ',0
+msg_credits_course: db '  CS 003: COMPUTER ARCH & ORGANIZATION      ',0
 msg_credits_div:    db '--------------------------------------------',0
-msg_credits_mem1:   db '  - BEJENO, JOSEPH FILBERT R.              ',0
-msg_credits_mem2:   db '  - CABUNOT, RHIANA DENISE D.              ',0
-msg_credits_mem3:   db '  - DUCYOGEN, DON L.                       ',0
-msg_credits_mem4:   db '  - SEPICO, PATRICK MARCO C.               ',0
-msg_credits_mem5:   db '  - VILLAFLOR, MARK JIRHO S.               ',0
-msg_credits_mem6:   db '  - YBANEZ, JAMES ALDRED V.                ',0
+msg_credits_mem1:   db '  - BEJENO, JOSEPH FILBERT R.               ',0
+msg_credits_mem2:   db '  - CABUNOT, RHIANA DENISE D.               ',0
+msg_credits_mem3:   db '  - DUCYOGEN, DON L.                        ',0
+msg_credits_mem4:   db '  - SEPICO, PATRICK MARCO C.                ',0
+msg_credits_mem5:   db '  - VILLAFLOR, MARK JIRHO S.                ',0
+msg_credits_mem6:   db '  - YBANEZ, JAMES ALDRED V.                 ',0
 msg_credits_key:    db 'PRESS ANY KEY TO RETURN',0

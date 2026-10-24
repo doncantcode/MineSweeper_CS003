@@ -19,107 +19,144 @@ Manual equivalent:
 
 ```
 nasm -f bin main.asm -o main.com -l main.lst
+nasm -f bin intro.asm -o intro.com
 ```
 
-Then, in DOSBox, mount this folder and run `main.com`. Click inside the
-DOSBox window so the mouse is captured.
+Run test suite:
+
+```
+main.com /t
+```
 
 ## Controls
 
 | Input            | Action                       |
 | ---------------- | ---------------------------- |
-| `1`/`2`/`3`/`4`  | Menu selection (no Enter)    |
+| `1`-`5`          | Menu selection (no Enter)    |
+| `M` in Menu      | Toggle Main Menu music on/off |
 | Left click       | Open a tile                  |
 | Right click      | Place / remove a flag        |
 | Click the face   | New game                     |
 | `R`              | New game                     |
-| `M`              | Music and sound on / off     |
+| `M` in Game      | In-game music and sound on / off |
 | `S`              | Mage only: arm the 3x3 scanner (next click scans) |
 | `B`, then left click | Use a bomb pickup on the selected tile's 3x3 area |
-| `ESC`            | Back to the main menu        |
+| `1` / `O`        | Use Oracle's Sight potion (reveals guaranteed safe tile) |
+| `2` / `L`        | Arm Line Radar potion (next click on a row sweeps it) |
+| `3` / `D`        | Use Mine Detector potion (auto-flags first unflagged mine) |
+| `ESC`            | Back to the main menu (Endless: back to the level select) |
+| Arrows / Enter / click | Level select: move, play the highlighted level |
 
-The first click is always safe: if it lands on a mine, the mine is moved
-to the first free cell.
+The first click is always guaranteed safe with an opening cascade: mines are generated avoiding the clicked cell and its 3x3 neighbourhood (0 adjacent mines).
 
 ## Modes
 
 The game boots into an ASCII intro, then the main menu: `[1] Play`
-opens the gamemode submenu, `[2] Shop`, `[3] Credits`, and `[4]` exits
-to DOS. The shop is where you buy and equip classes. Modes:
+opens class selection, followed by the gamemode submenu; `[2] Hero Shop`
+is where you unlock, buy and equip classes with Shrapnels; `[3] Credits`;
+`[4] Music: ON/OFF` toggles main menu music; and `[5] Exit to DOS` exits
+to DOS. Modes:
 
 | Mode    | Rules                                                                 |
 | ------- | --------------------------------------------------------------------- |
 | Vanilla | Classic rules; the timer counts up.                                    |
-| Endless | Reserved — currently plays like Vanilla.                               |
+| Endless | Level select of 10 scaled levels: Level 1 starts unlocked, beating Level N unlocks Level N+1. Economy, post-level item shop & potions. |
 | Rapid   | The timer starts at 60 and counts down. Hit 0 and the mines are revealed: instant loss. |
 
-The mode is fixed for the session; `R` and the face button start a new
-game in the same mode. `ESC` returns to the main menu to pick another
-mode or visit the shop; only menu option `[4]` leaves to DOS.
+The mode is fixed for the session; `R` and the face button restart the board. `ESC` returns to the main menu; only menu option `[5]` leaves to DOS.
 
-## Shrapnels and classes
+## Endless Mode Level Progression
 
-Every completed board awards **5 Shrapnels** and displays a reward
-popup. Currency, class ownership, and the equipped class are saved in
-`MINESW.SAV` in the DOS working directory. The shop prices are:
+Endless Mode uses a 10-level scaled difficulty curve capped at 20.0% mine density to ensure high logical solvability and smooth progression:
 
+| Level | Name | Grid Size (W × H) | Total Area | Mine Count | Mine Density |
+|:---:|:---|:---:|:---:|:---:|:---:|
+| 1 | Gentle Start | 6 × 6 | 36 | 3 | 8.3% |
+| 2 | Novice | 8 × 8 | 64 | 7 | 10.9% |
+| 3 | Beginner | 9 × 9 | 81 | 10 | 12.3% |
+| 4 | Apprentice | 10 × 10 | 100 | 14 | 14.0% |
+| 5 | Intermediate | 12 × 12 | 144 | 21 | 14.6% |
+| 6 | Skilled | 16 × 12 | 192 | 30 | 15.6% |
+| 7 | Advanced | 16 × 16 | 256 | 42 | 16.4% |
+| 8 | Expert | 24 × 14 | 336 | 58 | 17.3% |
+| 9 | Master | 30 × 16 | 480 | 90 | 18.8% |
+| 10 | Legend | 30 × 20 | 600 | 120 | 20.0% |
+
+*Note: After Level 10, subsequent stages repeat Level 10 parameters.*
+
+## Endless Game Flow
+
+```
+[Main Menu] ──► [Hero Shop] (Select/Upgrade Heroes)
+     │
+     └──► [Start Endless Run (Level 1)]
+               │
+               ▼
+        [Play Level]
+               │
+               ├─► Hit Mine ──► [Game Over Screen] ──► [Main Menu]
+               │
+               └─► Board Cleared ──► [Level Victory Menu]
+                                            │
+                                            ├──► Option A: [Continue] (Directly load Level N+1)
+                                            │
+                                            └──► Option B: [Item Shop] (Spend Shrapnel)
+                                                                 │
+                                                                 └──► [Next Level]
+```
+
+## Economy & Hero System
+
+### Currency: Shrapnel
+Players earn Shrapnel during Endless runs by clearing tiles, flagging mines, and completing levels.
+- **Base Shrapnel on level clear**: `Base_Shrapnel = Cleared_Tiles + (Mine_Count * 2)`
+- **Artificer Passive (Shrapnel Multiplication)**: Doubles all Shrapnel earned during gameplay and post-level completion rewards:
+  `Earned_Shrapnel = Base_Shrapnel * (Is_Artificer ? 2 : 1)`
+
+### Hero Classes
 | Class     | Price | Ability |
 | --------- | ----- | ------- |
-| Tank      | 10 Shrapnels | Absorbs one blast per level: the mine is pinned with a flag instead of game over. |
-| Mage      | 15 Shrapnels | Press `S`, then click a tile: every mine in the 3x3 around it is flagged, without stepping on anything. One scan per game. |
-| Artificer | 20 Shrapnels | Has a 75% chance of three item tiles per board; other classes have a 50% chance. |
+| Tank      | Free | Absorbs one blast per level: the mine is pinned with a flag instead of game over. |
+| Mage      | 10 Shrapnels | Press `S`, then click a tile: every mine in the 3x3 around it is flagged, without stepping on anything. One scan per game. |
+| Artificer | 10 Shrapnels | Doubles all Shrapnel earned during gameplay and post-level completion rewards (2x multiplier). |
 
-Each board has two or three randomly placed safe item tiles. Clearing one
-grants a bomb, shared by all classes. Press `B`, then left-click a tile to
-reveal safe cells in the selected 3x3 area; mines remain covered and are
-not detonated. Artificer has a higher chance of finding the third item
-tile.
+Currency, class ownership, run state and the highest unlocked Endless level persist in `MINESW.SAV`.
 
-Players start with no class equipped and can play as a regular sweeper
-while earning currency. Owned classes can be equipped from the
-main-menu shop and remain equipped across launches. The menu shows a
-warning if the save cannot be read or written.
+The left sidebar has a **SKILL** panel (your class skill and its current state) and a **LAST USE** log that updates every time a class skill, bomb or potion is used.
+
+## Item Shop & Potions
+
+All consumables cost **10 Shrapnels** each and can be bought in the between-level Item Shop:
+
+| Potion | Cost | Effect | Key |
+| --- | :---: | --- | :---: |
+| **Oracle’s Sight** | 10 Shrapnel | Instantly highlights / reveals one guaranteed safe tile on current board. | `1` or `O` |
+| **Line Radar** | 10 Shrapnel | Target a horizontal row. Safely reveals all safe tiles across that row and auto-flags any mines present. | `2` or `L` |
+| **Mine Detector** | 10 Shrapnel | Finds and automatically flags the first unflagged mine on the board, decrementing the mine counter UI. | `3` or `D` |
+
+Purchases are validated to ensure `Shrapnel >= 10`.
 
 ## Layout
 
-`main.asm` is only an include manifest. It declares the shared constants
-and `%include`s the modules below **in image order**, so the list in
-`main.asm` is the map of the binary.
+`main.asm` is the include manifest. Modules are included in **image order**:
 
 | File                  | Contents                                        |
 | --------------------- | ----------------------------------------------- |
-| `src/macros.inc`      | `HIDEM`/`SHOWM`/`BEVEL`/`TXT` macros             |
-| `src/entry.asm`       | Start, main loop, key handling, restart          |
-| `src/menu.asm`       | Text-mode intro, main menu, gamemode + shop menus |
-| `src/progress.asm`   | Shrapnel rewards, class ownership, `MINESW.SAV` persistence |
-| `src/credits.asm`    | `show_credits` — team credits screen              |
+| `src/macros.inc`      | `HIDEM`/`SHOWM`/`BEVEL`/`TXT` macros and shared constants |
+| `src/entry.asm`       | Start, main loop, key handling, restart, self-test mode |
+| `src/menu.asm`        | Text-mode intro, main menu, gamemode + hero shop menus |
+| `src/progress.asm`    | Shrapnel rewards, class ownership, `MINESW.SAV` persistence |
+| `src/credits.asm`     | `show_credits` — team credits screen              |
 | `src/palette.asm`     | DAC palette setup (gradient, greys, numbers)     |
-| `src/game.asm`        | Board state, mine placement, flood fill, win check |
-| `src/timer.asm`       | Seconds counter (counts up, or down in Rapid)    |
+| `src/game.asm`        | Level generator, lazy safe opening, potions logic, win check |
+| `src/timer.asm`       | Seconds counter on BIOS ticks                    |
 | `src/audio.asm`       | Speaker sequencing engine (music + effects)      |
 | `src/pcspeaker.asm`   | PIT channel 2 / port 61h hardware layer          |
-| `src/input.asm`       | Mouse click handling                             |
-| `src/video.asm`       | `FillRect`, bevels, sprite lists, glyphs         |
-| `src/ui.asm`          | Board, header, face and status rendering         |
-| `src/data.asm`        | Strings, palette data, 3x5 font, sprites         |
+| `src/input.asm`       | Mouse click handling, potion purchases & arming  |
+| `src/video.asm`       | `FillRect`, bevels, sprite lists, glyphs, number printing |
+| `src/ui.asm`          | Dynamic board rendering (16x16 & 8x8), HUD, victory/shop modals |
+| `src/data.asm`        | Strings, level table, sprites, fonts             |
 | `src/music.asm`       | `SongTable` — the looping tune                   |
 | `src/sfx.asm`         | `SfxBoom`, `SfxWin`                              |
 | `src/vars.asm`        | All mutable variables                            |
-
-Only `pcspeaker.asm` touches the speaker hardware. `audio.asm` is
-written against two calls (`SpeakerOn` with the frequency in Hz in `BX`,
-and `SpeakerOff`), which is what makes the engine testable.
-
-## Audio
-
-Music and effects share one table format — `dw frequencyHz, durationTicks`
-pairs, where `0` Hz is a rest and `0FFFFh` ends the list:
-
-- In `SongTable` the terminator loops back to the start of the tune.
-- In `SfxBoom` / `SfxWin` it ends the effect.
-
-Durations are in BIOS timer ticks (18.2 per second). Both effects take
-over the speaker, and when the effect finishes the music restarts from
-Riff 1. The tune is four riffs over D, C, B and Bb roots, played twice:
-once in the base register and once an octave up, then a third pass with
-altered tails.
+| `src/test_suite.inc`  | Built-in verification test suite                 |
