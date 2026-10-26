@@ -253,70 +253,115 @@ test_economy:
     pusha
     mov byte [CurrentMode], 1
 
-    ; Level 1: CurCells = 36, CurMines = 3 -> Base = 39
+    ; Level 1: Fixed 5 Shrapnels on finishing any level
     mov byte [CurrentLevel], 1
     call SetupCurrentLevel
 
     ; Test Non-Artificer (SelectedClass = 0)
     mov byte [SelectedClass], 0
-    mov ax, [CurCells]
-    add ax, [CurMines]
+    mov ax, WIN_REWARD
     mov [BaseShrapnel], ax
     cmp byte [SelectedClass], 3
     jne .notArt1
     shl ax, 1
 .notArt1:
     mov [EarnedShrapnel], ax
-    cmp word [BaseShrapnel], 39
+    cmp word [BaseShrapnel], 5
     jne test_fail
-    cmp word [EarnedShrapnel], 39
+    cmp word [EarnedShrapnel], 5
     jne test_fail
 
     ; Test Artificer (SelectedClass = 3)
     mov byte [SelectedClass], 3
-    mov ax, [CurCells]
-    add ax, [CurMines]
+    mov ax, WIN_REWARD
     mov [BaseShrapnel], ax
     cmp byte [SelectedClass], 3
     jne .notArt2
     shl ax, 1
 .notArt2:
     mov [EarnedShrapnel], ax
-    cmp word [BaseShrapnel], 39
+    cmp word [BaseShrapnel], 5
     jne test_fail
-    cmp word [EarnedShrapnel], 78       ; 39 * 2 = 78!
+    cmp word [EarnedShrapnel], 10       ; 5 * 2 = 10!
     jne test_fail
 
-    ; Level 10: CurCells = 600, CurMines = 120 -> Base = 720
+    ; Level 10: Still 5 Shrapnels (no scaling by grid size / mines)
     mov byte [CurrentLevel], 10
     call SetupCurrentLevel
 
     mov byte [SelectedClass], 0
-    mov ax, [CurCells]
-    add ax, [CurMines]
+    mov ax, WIN_REWARD
     mov [BaseShrapnel], ax
     cmp byte [SelectedClass], 3
     jne .notArt3
     shl ax, 1
 .notArt3:
     mov [EarnedShrapnel], ax
-    cmp word [BaseShrapnel], 720
+    cmp word [BaseShrapnel], 5
     jne test_fail
-    cmp word [EarnedShrapnel], 720
+    cmp word [EarnedShrapnel], 5
     jne test_fail
 
     mov byte [SelectedClass], 3
-    mov ax, [CurCells]
-    add ax, [CurMines]
+    mov ax, WIN_REWARD
     mov [BaseShrapnel], ax
     cmp byte [SelectedClass], 3
     jne .notArt4
     shl ax, 1
 .notArt4:
     mov [EarnedShrapnel], ax
-    cmp word [BaseShrapnel], 720
+    cmp word [BaseShrapnel], 5
     jne test_fail
-    cmp word [EarnedShrapnel], 1440     ; 720 * 2 = 1440!
+    cmp word [EarnedShrapnel], 10      ; 5 * 2 = 10!
+    jne test_fail
+
+    ; Verify live CheckWin execution in Endless Mode (Mode 1)
+    mov byte [CurrentMode], 1
+    mov byte [CurrentLevel], 1
+    call SetupCurrentLevel
+    mov word [Shrapnels], 20
+    mov byte [SelectedClass], 0
+    mov byte [GameOver], 0
+    xor si, si
+.openL1:
+    test byte [Board+si], 1
+    jnz .skipMine1
+    or byte [Board+si], 2
+.skipMine1:
+    inc si
+    cmp si, [CurCells]
+    jb .openL1
+    call CheckWin
+    call SpeakerOff
+    cmp word [BaseShrapnel], 5
+    jne test_fail
+    cmp word [EarnedShrapnel], 5
+    jne test_fail
+    cmp word [Shrapnels], 25           ; 20 + 5 = 25!
+    jne test_fail
+
+    ; Verify live CheckWin execution in Vanilla Mode (Mode 0)
+    mov byte [CurrentMode], 0
+    call SetupCurrentLevel
+    mov word [Shrapnels], 50
+    mov byte [SelectedClass], 0
+    mov byte [GameOver], 0
+    xor si, si
+.openVan:
+    test byte [Board+si], 1
+    jnz .skipMineV
+    or byte [Board+si], 2
+.skipMineV:
+    inc si
+    cmp si, [CurCells]
+    jb .openVan
+    call CheckWin
+    call SpeakerOff
+    cmp word [BaseShrapnel], 5
+    jne test_fail
+    cmp word [EarnedShrapnel], 5
+    jne test_fail
+    cmp word [Shrapnels], 55           ; 50 + 5 = 55!
     jne test_fail
 
     mov dx, msg_test2_ok
@@ -502,6 +547,39 @@ test_shop_validation:
     test byte [OwnedClasses], 1
     jz test_fail
     cmp byte [SelectedClass], 1
+    jne test_fail
+
+    ; Verify Hero Shop locked descriptions and flags when Shrapnels = 0
+    mov word [Shrapnels], 0
+    mov byte [OwnedClasses], 1      ; only tank owned
+    mov byte [SelectedClass], 1
+    call UpdateShopItems
+    cmp word [shop_mage_entry+2], ds_shopMageLock
+    jne test_fail
+    cmp byte [shop_mage_entry+4], 1
+    jne test_fail
+    cmp word [shop_artificer_entry+2], ds_shopArtLock
+    jne test_fail
+    cmp byte [shop_artificer_entry+4], 1
+    jne test_fail
+
+    ; Verify Hero Shop buy descriptions and flags when Shrapnels = 10
+    mov word [Shrapnels], 10
+    call UpdateShopItems
+    cmp word [shop_mage_entry+2], ds_shopMageBuy
+    jne test_fail
+    cmp byte [shop_mage_entry+4], 0
+    jne test_fail
+    cmp word [shop_artificer_entry+2], ds_shopArtBuy
+    jne test_fail
+    cmp byte [shop_artificer_entry+4], 0
+    jne test_fail
+
+    ; Verify ClassMenu locked descriptions show skills & 10 shrapnel requirement
+    call UpdateClassItems
+    cmp word [cls_mage_entry+2], ds_clsMageLock
+    jne test_fail
+    cmp word [cls_artificer_entry+2], ds_clsArtLock
     jne test_fail
 
     mov dx, msg_test4_ok

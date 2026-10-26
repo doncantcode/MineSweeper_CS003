@@ -832,6 +832,62 @@ DrawItem:
     mov si,[di]
     mov dl,PC+9
     call PrintA
+    cmp word [m_desc],menu_shop
+    jne .chkLockedDefault
+    cmp cl,3                    ; item 3 is BACK
+    jae .done
+
+    ; Price tag at PC+24 (col 39)
+    mov si,str_tag_10
+    or cl,cl
+    jnz .drawPrice
+    mov si,str_tag_free
+.drawPrice:
+    mov bl,[a_name]
+    mov dl,PC+24
+    call PrintA
+
+    ; Status tag at PC+36 (col 51)
+    test bh,1                   ; locked / cannot afford?
+    jz .shopAffordable
+    mov si,str_locked           ; '[LOCKED]'
+    jmp .drawTag
+.shopAffordable:
+    ; Class is owned or can be bought
+    mov bl,[OwnedClasses]
+    mov ch,cl                   ; 0=Tank, 1=Mage, 2=Artificer
+    inc ch
+    mov ah,1
+    dec ch
+    jz .shShiftDone
+.shShift:
+    shl ah,1
+    dec ch
+    jnz .shShift
+.shShiftDone:
+    test bl,ah
+    jnz .shopOwnedTag
+    ; Unowned, but has >= 10 Shrapnels
+    mov si,str_tag_buy          ; '[BUY   ]'
+    jmp .drawTag
+.shopOwnedTag:
+    mov al,[SelectedClass]
+    mov ch,cl
+    inc ch                      ; class ID: 1, 2, 3
+    cmp al,ch
+    jne .notEquipped
+    mov si,str_tag_equip        ; '[EQUIP ]'
+    jmp .drawTag
+.notEquipped:
+    mov si,str_tag_owned        ; '[OWNED ]'
+
+.drawTag:
+    mov bl,[a_name]
+    mov dl,PC+36
+    call PrintA
+    jmp .done
+
+.chkLockedDefault:
     test bh,1
     jz .done
     mov bl,[a_name]
@@ -859,7 +915,7 @@ DrawDesc:
     mov dl,PC+1
     call PrintA
     mov si,[di+2]
-    mov dl,PC+3
+    mov dl,PC+2
     call PrintA
     popa
     ret
@@ -964,9 +1020,9 @@ ShopMenu:
     ret
 
 ; Update a shop entry. Inputs: DI=item, BL=ownership bit, DL=class ID,
-; CX=price, SI=buy description, BP=equipped description.
+; CX=price, SI=buy description, BP=equipped description, AX=locked description.
 UpdateShopItem:
-    push ax
+    push bx
     test byte [OwnedClasses],bl
     jz .unowned
     cmp byte [SelectedClass],dl
@@ -985,10 +1041,10 @@ UpdateShopItem:
     mov byte [di+4],0
     jmp .done
 .insufficient:
-    mov word [di+2],ds_shopNeed
+    mov word [di+2],ax
     mov byte [di+4],1
 .done:
-    pop ax
+    pop bx
     ret
 
 UpdateShopItems:
@@ -998,6 +1054,7 @@ UpdateShopItems:
     mov cx,TANK_PRICE
     mov si,ds_shopTankBuy
     mov bp,ds_shopTankEquipped
+    mov ax,ds_shopTankBuy
     call UpdateShopItem
     mov di,shop_mage_entry
     mov bl,2
@@ -1005,6 +1062,7 @@ UpdateShopItems:
     mov cx,MAGE_PRICE
     mov si,ds_shopMageBuy
     mov bp,ds_shopMageEquipped
+    mov ax,ds_shopMageLock
     call UpdateShopItem
     mov di,shop_artificer_entry
     mov bl,4
@@ -1012,6 +1070,7 @@ UpdateShopItems:
     mov cx,ART_PRICE
     mov si,ds_shopArtBuy
     mov bp,ds_shopArtEquipped
+    mov ax,ds_shopArtLock
     call UpdateShopItem
     ret
 
@@ -1056,7 +1115,7 @@ UpdateClassItems:
     mov byte [di+4],0
     test byte [OwnedClasses],2
     jnz .mageSet
-    mov si,ds_clsLocked
+    mov si,ds_clsMageLock
     mov byte [di+4],1
 .mageSet:
     mov [di+2],si
@@ -1067,7 +1126,7 @@ UpdateClassItems:
     mov byte [di+4],0
     test byte [OwnedClasses],4
     jnz .artSet
-    mov si,ds_clsLocked
+    mov si,ds_clsArtLock
     mov byte [di+4],1
 .artSet:
     mov [di+2],si
@@ -1263,6 +1322,11 @@ hint_sub:   db ' ',18h,19h,' MOVE   ENTER SELECT   ESC BACK   1-4 QUICK PICK',0
 
 str_marker: db 10h,0
 str_mine:   db 0Fh,0
+str_tag_free:   db 'FREE    ',0
+str_tag_10:     db '10 SHRAP',0
+str_tag_buy:    db '[BUY   ]',0
+str_tag_owned:  db '[OWNED ]',0
+str_tag_equip:  db '[EQUIP ]',0
 str_locked: db '[LOCKED]',0
 keybuf:     db '[1]',0
 orn_fuse:   db '-=<<< ',0Fh,' >>>=-',0
@@ -1330,10 +1394,14 @@ it_shopBack:  db 'BACK',0
 ds_shopTankBuy: db 'Free! Shield absorbs one blast.',0
 ds_shopMageBuy: db 'Buy: 10 Shrapnels. Press S to scan a 3x3.',0
 ds_shopArtBuy: db 'Buy: 10 Shrapnels. Doubles earned Shrapnels.',0
+ds_shopMageLock: db 'Need 10 Shrapnels to unlock. S scans a 3x3.',0
+ds_shopArtLock: db 'Need 10 Shrapnels to unlock. Doubles Shrapnel.',0
 ds_shopTankEquipped: db 'Equipped: absorbs one blast per board.',0
 ds_shopMageEquipped: db 'Equipped: press S for one 3x3 scan per game.',0
 ds_shopArtEquipped: db 'Equipped: doubles all earned Shrapnels.',0
 ds_shopOwned: db 'Owned. Select to equip this class.',0
+ds_clsMageLock: db 'Locked (10 Shrapnels). Press S to scan a 3x3.',0
+ds_clsArtLock: db 'Locked (10 Shrapnels). Doubles earned Shrapnel.',0
 ds_shopNeed: db 'Not enough Shrapnels. Clear boards to earn.',0
 ds_shopBack: db 'Return to the main menu.',0
 shop_saveError: db 'PROGRESS FILE ERROR',0

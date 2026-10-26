@@ -911,46 +911,64 @@ DrawVictoryMenu:
     mov bl,11
     call PrintAt
 
-    ; Base Reward
-    mov dh,8
-    mov dl,6
-    mov bl,7
-    mov si,StrVicBase
+    ; Base Reward / Shrapnels Gained
+    cmp byte [SelectedClass], 3
+    jne .vicNormalReward
+
+    ; Artificer active: Base Reward (Row 8), Artificer Bonus (Row 9), Total Gained (Row 10)
+    mov dh, 8
+    mov dl, 6
+    mov bl, 7                   ; grey
+    mov si, StrVicBase          ; "BASE REWARD:      +"
     call PrintAt
-    mov ax,[BaseShrapnel]
-    mov dl,20
-    mov bl,15
+    mov ax, [BaseShrapnel]
+    mov dl, 25
+    mov bl, 15                  ; white
     call PrintWordAt
 
-    ; Artificer passive?
-    cmp byte [SelectedClass],3
-    jne .earnedLine
-    mov dh,9
-    mov dl,6
-    mov bl,14                   ; yellow
-    mov si,StrVicArtBonus
+    mov dh, 9
+    mov dl, 6
+    mov bl, 14                  ; bright yellow
+    mov si, StrVicArtBonus      ; "ARTIFICER 2X BONUS ACTIVE!"
     call PrintAt
 
-.earnedLine:
-    mov dh,10
-    mov dl,6
-    mov bl,10                   ; green
-    mov si,StrVicEarned
+    mov dh, 10
+    mov dl, 6
+    mov bl, 10                  ; bright green
+    mov si, StrVicEarned        ; "SHRAPNELS GAINED: +"
     call PrintAt
-    mov ax,[EarnedShrapnel]
-    mov dl,21
-    mov bl,14
+    mov ax, [EarnedShrapnel]
+    mov dl, 25
+    mov bl, 14                  ; yellow
+    call PrintWordAt
+    jmp .vicDrawBalance
+
+.vicNormalReward:
+    ; Non-Artificer: directly show Shrapnels Gained on Row 8
+    mov dh, 8
+    mov dl, 6
+    mov bl, 10                  ; bright green
+    mov si, StrVicEarned        ; "SHRAPNELS GAINED: +"
+    call PrintAt
+    mov ax, [EarnedShrapnel]
+    mov dl, 25
+    mov bl, 14                  ; yellow
     call PrintWordAt
 
+.vicDrawBalance:
     ; Total Shrapnel Balance
-    mov dh,11
-    mov dl,6
-    mov bl,15
-    mov si,StrVicBalance
+    mov dh, 10                  ; row 10 for normal, row 11 for Artificer
+    cmp byte [SelectedClass], 3
+    jne .vicBalRow
+    mov dh, 11
+.vicBalRow:
+    mov dl, 6
+    mov bl, 15                  ; white
+    mov si, StrVicBalance       ; "BALANCE: "
     call PrintAt
-    mov ax,[Shrapnels]
-    mov dl,15
-    mov bl,14
+    mov ax, [Shrapnels]
+    mov dl, 15
+    mov bl, 14                  ; yellow
     call PrintWordAt
 
     ; Newly unlocked level

@@ -106,10 +106,10 @@ LvlMinesTab:
 ; Victory Menu strings
 StrVicTitle     db '*** LEVEL CLEARED! ***',0
 StrVicLvlPrefix db 'LEVEL ',0
-StrVicBase      db 'BASE REWARD: +',0
+StrVicBase      db 'BASE REWARD:      +',0
 StrVicShrap     db ' SHRAPNELS',0
 StrVicArtBonus  db 'ARTIFICER 2X BONUS ACTIVE!',0
-StrVicEarned    db 'TOTAL EARNED: +',0
+StrVicEarned    db 'SHRAPNELS GAINED: +',0
 StrVicBalance   db 'BALANCE: ',0
 StrVicOptA      db '[1] CONTINUE (NEXT LEVEL)',0
 StrVicOptB      db '[2] ITEM SHOP (POTIONS)',0

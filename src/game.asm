@@ -509,10 +509,8 @@ CheckWin:
     mov byte [TimerOn], 0
 
     ; Base Shrapnel calculation:
-    ; Cleared_Tiles = CurCells - CurMines
-    ; Base_Shrapnel = Cleared_Tiles + (CurMines * 2) = CurCells + CurMines
-    mov ax, [CurCells]
-    add ax, [CurMines]
+    ; 5 Shrapnels awarded on finishing any level or game on any gamemode
+    mov ax, WIN_REWARD          ; 5 Shrapnels
     mov [BaseShrapnel], ax
 
     ; Hero Class: Artificer
@@ -520,7 +518,7 @@ CheckWin:
     ; Earned_Shrapnel = Base_Shrapnel * (Is_Artificer ? 2 : 1)
     cmp byte [SelectedClass], 3 ; Artificer?
     jne .notArtificer
-    shl ax, 1                   ; 2x Shrapnel multiplier!
+    shl ax, 1                   ; 2x Shrapnel multiplier! (5 * 2 = 10)
 .notArtificer:
     mov [EarnedShrapnel], ax
 
